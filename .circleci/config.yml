@@ -1,0 +1,46 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: jfsmig/anustart:ci-6
+    steps:
+      - checkout
+      - run:
+          name: Golang deps
+          command: |
+            source /etc/profile
+            go get github.com/google/subcommands
+            go get github.com/gorilla/websocket
+            go get github.com/google/flatbuffers/go
+            go get github.com/nanomsg/mangos-v2
+      - run:
+          name: Build the Golang parts
+          command: |
+            source /etc/profile
+            cd client/golang/cli
+            go build -o oio-kv-cli
+            sudo install oio-kv-cli /usr/local/bin
+      - run:
+          name: Build the C++ parts
+          command: |
+            source /etc/profile
+            cmake \
+              -D CMAKE_BUILD_TYPE=RelWithDebInfo \
+              -D CMAKE_INSTALL_PREFIX=/usr/local \
+              -D CMAKE_INSTALL_LIBDIR=/usr/local/lib \
+              -D NNG_INCDIR=/usr/local/include \
+              -D NNG_LIBDIR=/usr/local/lib \
+              -D FLATBUFFERS_INCDIR=/usr/local/include \
+              -D FLATBUFFERS_LIBDIR=/usr/local/lib \
+              -D ROCKSDB_INCDIR=/usr/local/include \
+              -D ROCKSDB_LIBDIR=/usr/local/lib \
+              .
+            make
+            sudo make install
+      - run:
+          name: Golang functional tests
+          command: |
+            source /etc/profile
+            cd client/golang/oiokv
+            go test -v
+            make test

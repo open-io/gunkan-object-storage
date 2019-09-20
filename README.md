@@ -1,2 +1,3 @@
-# object-storage
-Simple Yet Efficient Object Storage 
+# Gunkan Object Storage
+
+Still in stealth mode
