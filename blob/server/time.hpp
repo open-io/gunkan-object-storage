@@ -7,10 +7,11 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-#include "internals.hpp"
+#ifndef BLOB_SERVER_TIME_HPP_
+#define BLOB_SERVER_TIME_HPP_
 
-BlobClient::BlobClient(BlobServer *srv, int f, const BlobAddr &a):
-    fd{f}, peer{a}, server{srv} {
-  when_accept = microseconds();
-}
+#include <cstdint>
 
+uint64_t monotonic_microseconds();
+
+#endif  // BLOB_SERVER_TIME_HPP_

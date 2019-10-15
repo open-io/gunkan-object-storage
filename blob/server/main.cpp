@@ -7,23 +7,34 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-#include "internals.hpp"
+#include <poll.h>
+#include <getopt.h>
+#include <signal.h>
+
+#include <glog/logging.h>
+
+#include <iostream>
+#include <fstream>
+
+#include "http.hpp"
+#include "blob.hpp"
+#include "threads.hpp"
+
+#define CORO_STACK_SIZE 16384
+
+#define COLD __attribute__((cold))
+
 
 const int64_t one64{1};
+bool flag_debug{true};
+volatile bool flag_sys_running{true};
 
-
-static int _make_server(std::string endpoint)
-  __attribute__((cold));
-static void _usage(const BlobConfig &cfg)
-  __attribute__((cold));
-static void _configure_main(const BlobConfig &config)
-  __attribute__((cold));
-static void _sig_stop_react(int sig)
-  __attribute__((cold));
-static void _sig_stop_rearm()
-  __attribute__((cold));
-static void _parse_options(BlobConfig *cfg, int argc, char **argv)
-  __attribute__((cold));
+static int _make_server(std::string endpoint) COLD;
+static void _usage(const BlobConfig &cfg) COLD;
+static void _configure_main(const BlobConfig &config) COLD;
+static void _sig_stop_react(int sig) COLD;
+static void _sig_stop_rearm() COLD;
+static void _parse_options(BlobConfig *cfg, int argc, char **argv) COLD;
 
 
 int _make_server(std::string endpoint) {
@@ -36,13 +47,12 @@ int _make_server(std::string endpoint) {
 
   auto str_port = endpoint.substr(colon + 1);
   endpoint.resize(colon);
-  LOG(INFO) << "host " << endpoint << " port " << str_port;
 
   // Resolve the local address and establish a server on it
   ::dill_ipaddr addr{};
   int rc = ::dill_ipaddr_local(&addr,
       endpoint.c_str(), ::atoi(str_port.c_str()),
-      IPADDR_PREF_IPV6);
+      DILL_IPADDR_PREF_IPV6);
   if (rc != 0) {
     SYSLOG(ERROR) << "Unresolvable endpoint: " << ::strerror(errno);
     ::exit(EXIT_FAILURE);
@@ -222,9 +232,10 @@ void _configure_main(const BlobConfig &config) {
 }
 
 static BlobServer server;
+static ThreadRunner threads(&server.service);
 
 void _sig_stop_react(int s __attribute__((unused))) {
-  server.threads.stop();
+  threads.stop();
   _sig_stop_rearm();
 }
 
@@ -234,27 +245,20 @@ void _sig_stop_rearm() {
   signal(SIGTERM, _sig_stop_react);
 }
 
-int main(int argc, char **argv) {
-  _parse_options(&server.config, argc, argv);
-  _configure_main(server.config);
-  _sig_stop_rearm();
-  dill_stack_set_default_size(CORO_STACK_SIZE);
-  dill_stack_set_cache_max(1024);
-
-  server.configure(_make_server(server.config.endpoint));
-
-  server.threads.start();
-
-  // wait for a termination event and upstream the usage tokens
+static void _poll_tokens() {
   static const char names[4][4] = { "ber", "bew", "rtr", "rtw", };
-  struct pollfd pfd[4] = {
-    {server.threads.executor_be_read.fd_tokens,  POLLIN, 0},
-    {server.threads.executor_be_write.fd_tokens, POLLIN, 0},
-    {server.threads.executor_rt_read.fd_tokens,  POLLIN, 0},
-    {server.threads.executor_rt_write.fd_tokens, POLLIN, 0},
+  struct pollfd pfdtab[4] = {
+      {threads.executor_be_read.fd_tokens,  POLLIN, 0},
+      {threads.executor_be_write.fd_tokens, POLLIN, 0},
+      {threads.executor_rt_read.fd_tokens,  POLLIN, 0},
+      {threads.executor_rt_write.fd_tokens, POLLIN, 0},
   };
-  while (server.running()) {
-    int rc = ::poll(pfd, 4, 1000);
+  while (flag_sys_running) {
+    // Reset the flags and wait for an event to happen
+    for (auto &pfd : pfdtab)
+      pfd.revents = 0;
+    int rc = ::poll(pfdtab, 4, 5000);
+
     if (rc == 0)
       continue;
     if (rc < 0) {
@@ -262,20 +266,39 @@ int main(int argc, char **argv) {
         continue;
       break;
     }
-    for (int i{0}; i < 4; ++i) {
+
+    for (auto &pfd : pfdtab) {
       int64_t v{0};
-      const char *name = names[i];
-      ssize_t r = ::read(pfd[i].fd, &v, sizeof(v));
+      if (pfd.revents == 0)
+        continue;
+      ssize_t r = ::read(pfd.fd, &v, sizeof(v));
       if (r == sizeof(v) && v > 0) {
-        DLOG(INFO) << "TOKENS " << name << ' ' << v;
+#if 0
+        const char *name = names[i];
+        LOG(INFO) << "TOKENS " << name << ' ' << v;
+#endif
       }
     }
   }
+}
 
-  server.threads.stop();
-  server.threads.join();
+int main(int argc, char **argv) {
+  _parse_options(&server.config, argc, argv);
+  _configure_main(server.config);
+  _sig_stop_rearm();
+  dill_stack_set_default_size(CORO_STACK_SIZE);
+  dill_stack_set_cache_max(1024);
+
+  if (!server.configure())
+    ::exit(EXIT_FAILURE);
+  threads.configure(_make_server(server.config.endpoint));
+  threads.start();
+
+  _poll_tokens();
+
+  threads.stop();
+  threads.join();
   if (!server.config.pidfile.empty())
     ::unlink(server.config.pidfile.c_str());
   return 0;
 }
-

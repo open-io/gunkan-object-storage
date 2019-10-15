@@ -17,9 +17,9 @@ jobs:
           name: Build the Golang parts
           command: |
             source /etc/profile
-            cd client/golang/cli
-            go build -o oio-kv-cli
-            sudo install oio-kv-cli /usr/local/bin
+            cd kv/client/golang/client
+            go build -o gunkan-kv-client
+            sudo install gunkan-kv-cli /usr/local/bin
       - run:
           name: Build the C++ parts
           command: |
@@ -38,9 +38,12 @@ jobs:
             make
             sudo make install
       - run:
-          name: Golang functional tests
+          name: Functional tests
           command: |
             source /etc/profile
-            cd client/golang/oiokv
+            cd kv/server
             go test -v
+            cd -
+            cd blob/server
             make test
+

@@ -17,6 +17,7 @@ Written in C++ with the subsequent libraries:
 * `libdill` to run one pool of coroutine into each worker thread.
 * `http-parser`
 * `glog`
+* `gflags`
 * `opentracing`
 
 Each service uses 4 threads by default:
@@ -67,13 +68,22 @@ Common Request headers:
 
 Returns a description of the service.
 
+### GET /v1/status
+
+Returns usage statistics about the current service.
+The body contains JSON
+
+### GET /v1/list
+
+Returns a list of ``{BLOB-ID}``, one per line, with en `CRLF` as a line separator.
+ 
+Optional query string arguments are honored:
+* ``marker`` a prefix of a ``{BLOB-ID}`` that must be past by the iterator.
+* ``max`` the maximum number of items in the answer
+
 ### PUT /v1/blob/{BLOB-ID}
 
 Add a BLOB on the storage of the service.
-
-### DELETE /v1/blob/{BLOB-ID}
-
-Remove a BLOB from the storage of the service.
 
 ### GET /v1/blob/{BLOB-ID}
 
@@ -88,6 +98,6 @@ in the header of the reply.
 That route respects the semantics of a HEAD HTTP request: e.g. the `content-length`
 field is present but no body is expected.
 
-### GET /v1/status
+### DELETE /v1/blob/{BLOB-ID}
 
-
+Remove a BLOB from the storage of the service.

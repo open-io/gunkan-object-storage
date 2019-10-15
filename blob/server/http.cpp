@@ -7,7 +7,21 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-#include "internals.hpp"
+#include "http.hpp"
+
+#include <libdill.h>
+#include <glog/logging.h>
+#include <opentracing/tracer.h>
+#include <opentracing/propagation.h>
+#include <opentracing/string_view.h>
+
+#include <string>
+#include <utility>
+#include <ios>
+
+#include "io.hpp"
+#include "time.hpp"
+#include "strings.hpp"
 
 #define SEND(FD, M) _write_full(FD, \
   reinterpret_cast<const uint8_t *>(M), sizeof(M)-1, \
@@ -89,13 +103,15 @@ http_parser_settings settings{
 };
 
 
-HttpRequest::HttpRequest(std::shared_ptr<BlobClient> c,
+HttpRequest::HttpRequest(
+    std::shared_ptr<ActiveFD> c,
     std::shared_ptr<opentracing::Tracer> t) :
-    client(c), url(), headers(), tracer(t),
+    client(c), headers(), tracer(t),
+    url(), bytes_in{0}, when_active{0}, when_parsed{0}, when_consumed{0},
     body(), body_offset{0},
     hdr_field(), hdr_value(),
     step{HttpRequestParsingStep::First}, parser{} {
-  when_active = microseconds();
+      when_active = monotonic_microseconds();
 }
 
 void HttpRequest::add_body(std::vector<uint8_t> b, size_t offset) {
@@ -115,6 +131,8 @@ bool HttpRequest::consume_headers(int64_t dl) {
   http_parser_init(&parser, HTTP_REQUEST);
   parser.data = this;
 
+  when_parsed = monotonic_microseconds();
+
   // Consume bytes, parse the request and stop at the end of the headers
   assert(step == HttpRequestParsingStep::First);
   while (step != HttpRequestParsingStep::Body) {
@@ -133,6 +151,7 @@ bool HttpRequest::consume_headers(int64_t dl) {
       return false;
     }
 
+    bytes_in += r;
     filled = r;
     consumed = ::http_parser_execute(&parser, &settings,
         reinterpret_cast<const char*>(buffer.data()), filled);
@@ -159,10 +178,55 @@ bool HttpRequest::consume_headers(int64_t dl) {
   }
 
   http_parser_pause(&parser, 0);
-  when_headers = microseconds();
+  when_parsed = monotonic_microseconds();
   return true;
 }
 
+std::unique_ptr<HttpReply> HttpRequest::make_reply() {
+  return std::unique_ptr<HttpReply>(new HttpReply(*this, client, tracer));
+}
+
+HttpMethod HttpRequest::method() const {
+  switch (parser.method) {
+    case HTTP_PUT:
+      return HttpMethod::Put;
+    case HTTP_COPY:
+      return HttpMethod::Copy;
+    case HTTP_MOVE:
+      return HttpMethod::Move;
+    case HTTP_DELETE:
+      return HttpMethod::Delete;
+    case HTTP_HEAD:
+      return HttpMethod::Head;
+    case HTTP_GET:
+    default:
+      return HttpMethod::Get;
+  }
+}
+
+bool HttpRequest::read_only() const {
+  switch (method()) {
+    case HttpMethod::Put:
+    case HttpMethod::Copy:
+    case HttpMethod::Move:
+    case HttpMethod::Delete:
+      return false;
+    default:
+      return true;
+  }
+}
+
+uint64_t total_microseconds(const HttpRequest &req, const HttpReply &rep) {
+  const uint64_t pre = req.when_active;
+  const uint64_t post = monotonic_microseconds();
+  return post - pre;
+}
+
+uint64_t execution_microsends(const HttpRequest &req, const HttpReply &rep) {
+  const uint64_t pre = req.when_parsed;
+  const uint64_t post = rep.when_start;
+  return post - pre;
+}
 
 static const char * _code2msg(int code) {
   switch (code) {
@@ -175,7 +239,10 @@ static const char * _code2msg(int code) {
     case 403: return "Forbidden";
     case 404: return "Not Found";
     case 405: return "Method Not Allowed";
+    case 408: return "Timeout";
+    case 409: return "Conflict";
     case 418: return "No Such Handler";
+    case 499: return "Client error";
     case 500: return "Internal Error";
     case 501: return "Not Implemented";
     case 502: return "Backend Error";
@@ -184,62 +251,91 @@ static const char * _code2msg(int code) {
   }
 }
 
-static std::string _pack_reply_header(int code, int64_t content_length) {
+struct ReplyWriter : opentracing::HTTPHeadersWriter {
+  ReplyWriter(Headers &h) : headers_{h} {}
+
+  opentracing::expected<void> Set(
+      opentracing::string_view key,
+      opentracing::string_view value) const override {
+    headers_[key] = value;
+    return {};
+ }
+
+  Headers &headers_;
+};
+
+static std::string _pack_reply_header(
+    int code,
+    int64_t content_length,
+    HttpRequest *req,
+    HttpReply *rep) {
   std::stringstream ss;
-  ss << "HTTP/1.1 " << code << ' ' << _code2msg(code) << "\r\n"
-    << "Connection: close\r\n";
-  if (content_length >= 0) {
-    ss << "Content-Length: " << content_length << "\r\n";
-  } else {
-    ss << "Transfer-Encoding: chunked\r\n";
-  }
-  ss << "\r\n";
+
+  // Extract the OpenTracing headers
+  Headers ot_headers;
+  ReplyWriter w(ot_headers);
+  rep->tracer->Inject(req->span_active->context(), w);
+
+  ss << "HTTP/1.1 " << code << ' ' << _code2msg(code) << CRLF;
+  ss << "Connection: close" << CRLF;
+  if (content_length >= 0)
+    ss << "Content-Length: " << content_length << CRLF;
+  else
+    ss << "Transfer-Encoding: chunked" << CRLF;
+  for (const auto &e : rep->headers)
+    ss << e.first << ": " << e.second << CRLF;
+  for (const auto &e : ot_headers)
+    ss << e.first << ": " << e.second << CRLF;
+  ss << CRLF;
   return ss.str();
 }
 
-HttpReply::~HttpReply() {
-  int64_t when_final = microseconds();
-  SYSLOG(INFO) << "access " << request->url
-    << ' ' << (request->when_active - request->client->when_accept)
-    << ' ' << (request->when_headers - request->when_active)
-    << ' ' << (when_final - request->client->when_accept);
-}
+HttpReply::~HttpReply() {}
 
-HttpReply::HttpReply(HttpRequest *req) : client(req->client), request{req} {}
+HttpReply::HttpReply(
+    HttpRequest &req,
+    std::shared_ptr<ActiveFD> c,
+    std::shared_ptr<opentracing::Tracer> t) : client(c), tracer(t), req_{req} {}
 
-bool HttpReply::write_error(int code) {
-  return write_headers(code, 0);
+void HttpReply::write_error(int code) {
+  write_headers(code, 0);
 }
 
 bool HttpReply::write_headers(int code, int64_t content_length) {
-  std::string s = _pack_reply_header(code, content_length);
+  std::string s = _pack_reply_header(code, content_length, &req_, this);
+  bytes_out += s.size();
+  when_start = monotonic_microseconds();
+  code_ = code;
   return _write_full(client->fd,
                      reinterpret_cast<uint8_t *>(s.data()), s.size(),
                      ::dill_now() + HTTP_TIMEOUT_SEND_HEADER);
 }
 
 bool HttpReply::write_final_chunk() {
-  return SEND(client->fd, CHUNK_FINAL);
+  auto rc = SEND(client->fd, CHUNK_FINAL);
+  bytes_out += sizeof(CHUNK_FINAL) - 1;
+  return rc;
 }
 
 bool HttpReply::write_chunk(uint8_t *base, size_t length) {
   static char CRLF[] = "\r\n";
 
   std::stringstream ss;
-  ss << length << "\r\n";
+  ss << std::hex << length << "\r\n";
   auto s = ss.str();
 
   struct iovec iov[3];
-  iov[0].iov_base = const_cast<char*>(s.data());
+  iov[0].iov_base = s.data();
   iov[0].iov_len = s.size();
   iov[1].iov_base = base;
   iov[1].iov_len = length;
   iov[2].iov_base = CRLF;
   iov[2].iov_len = 2;
+
+  bytes_out += compute_iov_size(iov, 3);
   return _writev_full(client->fd, iov, 3, ::dill_now() + 1000);
 }
 
 bool HttpReply::write_chunk(char *base, size_t length) {
   return write_chunk(reinterpret_cast<uint8_t*>(base), length);
 }
-

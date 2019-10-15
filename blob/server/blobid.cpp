@@ -7,7 +7,11 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-#include "internals.hpp"
+#include "blobid.hpp"
+
+#include <sstream>
+
+#include "strings.hpp"
 
 std::string BlobId::encode() const {
   std::stringstream ss;
@@ -58,4 +62,3 @@ bool BlobId::decode(const std::string &s) {
   position = std::atoi(spos.c_str());
   return is_hexa(id_content) && is_hexa(id_part);
 }
-

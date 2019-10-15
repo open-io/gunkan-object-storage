@@ -7,7 +7,43 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-#include "./internals.hpp"
+#include "threads.hpp"
+
+#include <unistd.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/socket.h>
+#include <sys/eventfd.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/resource.h>
+
+#include <gflags/gflags.h>
+#include <glog/logging.h>
+
+#include <cassert>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <mutex>  // NOLINT
+#include <string>
+#include <utility>
+#include <vector>
+
+#define THREAD_STACK_SIZE 16384
+
+#define CALL(Fn, ...) do { \
+  int rc = Fn(__VA_ARGS__); \
+  if (rc != 0) { \
+    DLOG(INFO) << #Fn \
+      << " rc=" << rc << "/" << ::strerror(rc) \
+      << " errno=" << errno << "/" << ::strerror(errno); \
+  } \
+  assert(rc == 0); \
+} while (0)
+
 
 static uint8_t stack_ingress[THREAD_STACK_SIZE];
 static uint8_t stack_be_read[THREAD_STACK_SIZE];
@@ -60,13 +96,14 @@ void Thread::join() {
 
 ThreadRunner::~ThreadRunner() {}
 
-ThreadRunner::ThreadRunner(BlobServer *srv) :
-  server{srv}, flag_running{true}, worker_ingress(srv),
-  executor_be_read(srv), executor_be_write(srv),
-  executor_rt_read(srv), executor_rt_write(srv) {}
+ThreadRunner::ThreadRunner(HttpHandler *h) :
+  worker_ingress(this),
+  executor_be_read(h), executor_be_write(h),
+  executor_rt_read(h), executor_rt_write(h) {}
 
-
-bool ThreadRunner::running() const { return flag_running; }
+void ThreadRunner::configure(int fd) {
+  worker_ingress.fd_server = fd;
+}
 
 void ThreadRunner::start() {
   pthread_attr_t th_attr{};
@@ -118,7 +155,7 @@ void ThreadRunner::start() {
   executor_rt_read.ioprio_high = false;
   executor_rt_write.tos = IpTos::Throughput;
   pthread_attr_setstack(&th_attr, stack_rt_read, THREAD_STACK_SIZE);
-  executor_rt_read.start<RequestExecutor>("ig-blob@read-real-time", &th_attr);
+  executor_rt_read.start<RequestExecutor>("ig-blob@read-RT", &th_attr);
 
   CALL(pthread_attr_setdetachstate, &th_attr, PTHREAD_CREATE_JOINABLE);
   if (run_as_root) {
@@ -131,7 +168,7 @@ void ThreadRunner::start() {
   executor_rt_write.ioprio_high = true;
   executor_rt_write.tos = IpTos::Throughput;
   pthread_attr_setstack(&th_attr, stack_rt_write, THREAD_STACK_SIZE);
-  executor_rt_write.start<RequestExecutor>("ig-blob@write-real-time", &th_attr);
+  executor_rt_write.start<RequestExecutor>("ig-blob@write-RT", &th_attr);
 
 
   // Best-Effort class --------------------------------------
@@ -151,7 +188,7 @@ void ThreadRunner::start() {
   executor_be_read.ioprio_high = false;
   executor_be_read.tos = IpTos::LowCost;
   pthread_attr_setstack(&th_attr, stack_be_read, THREAD_STACK_SIZE);
-  executor_be_read.start<RequestExecutor>("ig-blob@read-best-effort", &th_attr);
+  executor_be_read.start<RequestExecutor>("ig-blob@read-BE", &th_attr);
 
   CALL(pthread_attr_setdetachstate, &th_attr, PTHREAD_CREATE_JOINABLE);
   if (run_as_root) {
@@ -164,7 +201,7 @@ void ThreadRunner::start() {
   executor_be_write.ioprio_high = true;
   executor_be_write.tos = IpTos::LowCost;
   pthread_attr_setstack(&th_attr, stack_be_write, THREAD_STACK_SIZE);
-  executor_be_write.start<RequestExecutor>("ig-blob@write-best-effort", &th_attr);
+  executor_be_write.start<RequestExecutor>("ig-blob@write-BE", &th_attr);
 
   // Start the worker_ingress (that also qualifies the requests):
   // We give it a low priority, just below the main thread for signals
@@ -176,10 +213,10 @@ void ThreadRunner::start() {
     CALL(pthread_attr_setschedparam, &th_attr, &param);
   }
   pthread_attr_setstack(&th_attr, stack_ingress, THREAD_STACK_SIZE);
-  worker_ingress.start<RequestAcceptor>("ig-blob@ingres", &th_attr);
+  worker_ingress.start<RequestAcceptor>("ig-blob@ingress", &th_attr);
 }
 
-void ThreadRunner::stop() { flag_running = false; }
+void ThreadRunner::stop() { flag_sys_running = false; }
 
 void ThreadRunner::join() {
   worker_ingress.join();
@@ -188,4 +225,3 @@ void ThreadRunner::join() {
   executor_be_read.join();
   executor_rt_read.join();
 }
-

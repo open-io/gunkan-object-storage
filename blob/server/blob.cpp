@@ -7,175 +7,580 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-#include "internals.hpp"
+#include "blob.hpp"
+
+#include <unistd.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/eventfd.h>
+#include <sys/sendfile.h>
+
+#include <gflags/gflags.h>
+#include <glog/logging.h>
+#include <libdill.h>
+
+#include <cassert>
+#include <algorithm>
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+
+#include "strings.hpp"
+
+
+#define URL_PREFIX_INFO "/info"
+#define URL_PREFIX_V1_STATUS "/v1/status"
+#define URL_PREFIX_V1_BLOB "/v1/blob"
+#define URL_PREFIX_V1_LIST "/v1/list"
+
+#define MESSAGE_INFO "gunkan object-storage blob v1"
+
+#define FLAGS_OPEN O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NONBLOCK|O_NOATIME
+
+static int _errno_to_http(int err) {
+  switch (errno) {
+    case EINVAL:
+      return 400;
+    case ENOENT:
+    case ENOTDIR:
+      return 404;
+    case EISDIR:
+      return 502;
+    case EBUSY:
+      return 503;
+    case EPERM:
+    case EACCES:
+    case EROFS:
+      return 403;
+    default:
+      return 500;
+  }
+}
+
+static int _index_next(const std::string &url, size_t start_offset);
+
+int _index_next(const std::string &url, size_t i) {
+  const int max = url.size();
+  for (; i<max && url[i] == '/'; i++) {}
+  return i;
+}
+
 
 BlobServer::~BlobServer() {}
 
-BlobServer::BlobServer() : stats{}, config{}, threads(this), service(this) {}
+BlobServer::BlobServer() : stats{}, config{}, service(this) {}
 
-bool BlobServer::running() const { return threads.running(); }
-
-void BlobServer::configure(int fd) {
-  threads.worker_ingress.fd_server = fd;
+bool BlobServer::configure() {
+  return service.configure(config.basedir);
 }
 
-BlobService::~BlobService() {}
+BlobService::~BlobService() {
+  if (fd_basedir >= 0) {
+    ::close(fd_basedir);
+    fd_basedir = -1;
+  }
+}
 
-BlobService::BlobService(BlobServer *srv) : server{srv} {}
+BlobService::BlobService(BlobServer *srv) : server{srv}, fd_basedir{-1} {}
+
+bool BlobService::configure(const std::string basedir) {
+  if (fd_basedir >= 0) {
+    SYSLOG(ERROR) << "Service already configured";
+    return false;
+  }
+
+  fd_basedir = ::open(basedir.c_str(), O_RDONLY,
+                      O_NOATIME | O_DIRECTORY | O_PATH);
+  if (fd_basedir >= 0)
+    return true;
+
+  SYSLOG(ERROR) << "open(" << basedir << ") error: "
+                << errno << '/' << ::strerror(errno);
+  return false;
+}
 
 std::string BlobService::fullpath(const BlobId &id) {
   const unsigned int hd = server->config.hash_depth;
   const unsigned int hw = server->config.hash_width;
   std::stringstream ss;
-  ss << server->config.basedir;
+  bool any{false};
+
   for (unsigned int i{0}; i < hd; ++i) {
-    ss << '/' << id.id_content.substr(i * hw, hw);
+    if (any)
+      ss << '/';
+    any = true;
+    ss << id.id_content.substr(i * hw, hw);
   }
-  ss << '/' << id.id_content.substr(hw * hd) << ',' << id.id_part << ',' << id.position;
+  if (any)
+    ss << '/';
+  ss << id.id_content.substr(hw * hd) << ',' << id.id_part << ','
+     << id.position;
   return ss.str();
 }
 
-void BlobService::execute(HttpRequest *req, HttpReply *rep) {
+#define CASE(N) case N: server->stats.c_##N ++; break
+
+void BlobService::execute(
+    std::unique_ptr<HttpRequest> req,
+    std::unique_ptr<HttpReply> rep) {
+
+  req->span_exec = req->tracer->StartSpan("exec",
+      {opentracing::FollowsFrom(&req->span_wait->context()),
+       opentracing::ChildOf(&req->span_active->context())});
+
   if (_starts_with(req->url, URL_PREFIX_V1_BLOB)) {
-    (void) do_v1_blob(req, rep);
+    do_v1_blob(req.get(), rep.get());
+  } else if (_starts_with(req->url, URL_PREFIX_V1_LIST)) {
+    do_v1_list(req.get(), rep.get());
+    server->stats.h_list ++;
+    server->stats.t_list += total_microseconds(*req, *rep);
   } else if (req->url == URL_PREFIX_V1_STATUS) {
-    (void) do_v1_status(req, rep);
+    do_v1_status(req.get(), rep.get());
+    server->stats.h_status ++;
+    server->stats.t_status += total_microseconds(*req, *rep);
   } else if (req->url == URL_PREFIX_INFO) {
-    (void) do_info(req, rep);
+    do_info(req.get(), rep.get());
+    server->stats.h_info ++;
+    server->stats.t_info += total_microseconds(*req, *rep);
   } else {
     // No handler matched
-    (void) rep->write_error(404);
+    req->span_exec->Finish();
+    req->span_active->Finish();
+    rep->write_error(418);
+    server->stats.h_other ++;
+    server->stats.t_other += total_microseconds(*req, *rep);
   }
 
-  // No connection kept alive
-  ::dill_fdclean(rep->client->fd);
-  ::close(rep->client->fd);
+
+  server->stats.b_in += req->bytes_in;
+  server->stats.b_out += rep->bytes_out;
+
+  switch (rep->code_) {
+    CASE(200);
+    CASE(201);
+    CASE(204);
+    CASE(206);
+    CASE(400);
+    CASE(403);
+    CASE(404);
+    CASE(405);
+    CASE(408);
+    CASE(409);
+    CASE(418);
+    CASE(499);
+    CASE(502);
+    CASE(503);
+    default: server->stats.c_50X ++; break;
+  }
 }
 
-bool BlobService::do_v1_blob(HttpRequest *req, HttpReply *rep) {
+void BlobService::do_v1_blob(HttpRequest *req, HttpReply *rep) {
   BlobId id;
 
   // Check and normalize the chunkid
-  auto chunkid = req->url.substr(sizeof(URL_PREFIX_V1_BLOB)-1);
-  if (!id.decode(chunkid))
-    return rep->write_error(400);
+  auto chunkid = req->url.substr(
+      _index_next(req->url, sizeof(URL_PREFIX_V1_BLOB)-1));
+  if (!id.decode(chunkid)) {
+    rep->write_error(400);
+    return;
+  }
 
-  auto fp = req->client->server->service.fullpath(id);
-  DLOG(INFO) << "chunkid = " << chunkid;
-  DLOG(INFO) << "path = " << fp;
-  DLOG(INFO) << "body = " << req->body.size() - req->body_offset;
+  const auto fp = server->service.fullpath(id);
 
   // Forward to the action depending on the method
-  switch (req->parser.method) {
-    case HTTP_PUT:
-      return do_v1_blob_put(req, rep);
-    case HTTP_HEAD:
-      return do_v1_blob_get(req, rep, false);
-    case HTTP_GET:
-      return do_v1_blob_get(req, rep, true);
-    case HTTP_DELETE:
-      return do_v1_blob_delete(req, rep, fp);
+  switch (req->method()) {
+    case HttpMethod::Put:
+      do_v1_blob_put(req, rep, fp);
+      server->stats.h_put ++;
+      server->stats.t_put += total_microseconds(*req, *rep);
+      return;
+    case HttpMethod::Head:
+      do_v1_blob_get(req, rep, fp, false);
+      server->stats.h_head ++;
+      server->stats.t_head += total_microseconds(*req, *rep);
+      return;
+    case HttpMethod::Get:
+      do_v1_blob_get(req, rep, fp, true);
+      server->stats.h_get ++;
+      server->stats.t_get += total_microseconds(*req, *rep);
+      return;
+    case HttpMethod::Delete:
+      do_v1_blob_delete(req, rep, fp);
+      server->stats.h_delete ++;
+      server->stats.t_delete += total_microseconds(*req, *rep);
+      return;
     default:
-      return rep->write_error(405);
+      rep->write_error(405);
+      server->stats.h_other ++;
+      server->stats.t_other += total_microseconds(*req, *rep);
+      return;
   }
 }
 
-bool BlobService::do_v1_blob_delete(HttpRequest *req, HttpReply *rep,
+void BlobService::do_v1_blob_delete(
+    HttpRequest *req __attribute__((unused)),
+    HttpReply *rep,
     const std::string &fp) {
-  LOG(INFO) << "DELETE " << fp;
-  (void) req;
-  return rep->write_error(501);
+  int rc = ::unlinkat(fd_basedir, fp.c_str(), 0);
+  req->span_exec->Finish();
+  req->span_active->Finish();
+  return rep->write_error(!rc ? 204 : _errno_to_http(errno));
 }
 
-bool BlobService::do_v1_blob_get(HttpRequest *req, HttpReply *rep, bool body) {
-  (void) req, (void) body;
-  return rep->write_error(501);
-}
+void BlobService::do_v1_blob_get(HttpRequest *req, HttpReply *rep,
+    const std::string &path, bool body) {
+  FD fd(::openat(fd_basedir, path.c_str(),
+        O_RDONLY | O_CLOEXEC | O_NOATIME | O_NONBLOCK));
 
-bool BlobService::do_v1_blob_put_chunked(HttpRequest *req, HttpReply *rep, int fd_chunk) {
-  (void) req, (void) fd_chunk;
-  return rep->write_error(501);
-}
+  if (fd.fd < 0)
+    return rep->write_error(_errno_to_http(errno));
 
-bool BlobService::do_v1_blob_put_inline(HttpRequest *req, HttpReply *rep, int fd_chunk) {
-  (void) req, (void) fd_chunk;
-  return rep->write_error(501);
-}
+  struct stat st{};
+  int rc = ::fstat(fd.fd, &st);
+  req->span_exec->Finish();
+  req->span_active->Finish();
+  if (0 > rc)
+    return rep->write_error(_errno_to_http(errno));
 
-bool BlobService::do_v1_blob_put(HttpRequest *req, HttpReply *rep) {
-  std::string path;
-  int fd_chunk{-1};
-  volatile bool retryable{false};
-  const int flags_open{O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC|O_NONBLOCK};
+  uint64_t size = st.st_size;
+  rep->write_headers(body && size > 0 ? 200 : 204, size);
+  if (!body || !size)
+    return;
 
-  // Open the target file with a lazy autocreation of the directory
-label_retry_open:
-  fd_chunk = ::open(path.c_str(), flags_open, 0644);
-  if (fd_chunk < 0) {
-    switch (errno) {
-      case EPERM:
-        return rep->write_error(403);
-      case ENOENT:
-        if (retryable) {
-          retryable = false;
-          goto label_retry_open;
-        }
-        return rep->write_error(403);
-      case ENOTDIR:
-        return rep->write_error(500);
-    }
-  }
-
-  // TODO(jfs): Pre-allocate the file
-#ifdef __linux
-  do {
-    size_t _length{NS_CHUNK_SIZE};
-    if (req->parser.content_length > 0) {
-      if (!(req->parser.flags & F_CHUNKED)) {
-        _length = req->parser.content_length;
+  while (size > 0) {
+    ssize_t sent = ::sendfile(rep->client->fd, fd.fd, nullptr, size);
+    if (sent > 0) {
+      size -= sent;
+      rep->bytes_out += sent;
+      ::dill_yield();
+    } else if (sent < 0) {
+      if (errno == EINTR)
+        continue;
+      if (errno == EAGAIN) {
+        int64_t dl = ::dill_now() + 10000;
+        if (::dill_fdout(rep->client->fd, dl) || ::dill_fdin(fd.fd, dl))
+          return;
+      } else {
+        SYSLOG(WARNING)
+          << "sendfile(" << path << ")"
+          << " errno=" << errno << "/" << ::strerror(errno);
+        return;
       }
     }
-    ::fallocate(fd_chunk, FALLOC_FL_KEEP_SIZE, 0, _length);
-  } while (0);
-#endif
-
-  // TODO(jfs): give the kernel an advice on further accesses
-
-  // Perform the upload with a special treatment for the body
-  bool done{false};
-  if (req->parser.flags & F_CHUNKED) {
-    done = do_v1_blob_put_chunked(req, rep, fd_chunk);
-  } else {
-    done = do_v1_blob_put_inline(req, rep, fd_chunk);
   }
-
-  if (done) {
-    // TODO(jfs): relink the chunk under its final name
-    // TODO(jfs): send the fsync if configured so
-  } else {
-    ::unlink(path.c_str());
-  }
-
-  ::close(fd_chunk);
-  return done;
 }
 
-bool BlobService::do_v1_status(HttpRequest *req, HttpReply *rep) {
-  (void) req;
+int BlobService::_upload_body_chunked(
+    HttpRequest *req, FileAppender *chunk) {
+  chunk->extend_allowed = server->config.flag_fallocate;
+  return ENOEXEC;
+}
+
+int BlobService::_upload_body_inline(
+    HttpRequest *req,
+    FileAppender *chunk) {
+  const int64_t total = req->parser.content_length;
+  if (total <= 0)
+    return 0;
+
+  chunk->extend_allowed = server->config.flag_fallocate;
+  chunk->preallocate(total);
+
+  // Flush the portion of body that has already been consumed
+  if (!req->body.empty() && req->body_offset < req->body.size()) {
+    const size_t sz = req->body.size() - (req->body_offset + 1);
+    auto w = _write_full(chunk->fd,
+        req->body.data() + (req->body_offset + 1),
+        sz, ::dill_now() + 5000);
+    if (w) {
+      chunk->written += sz;
+    } else {
+      return errno;
+    }
+  }
+
+  return (chunk->written >= total) ? 0 :
+    chunk->splice(req->client->fd, total - chunk->written);
+}
+
+static size_t bounded_length(const char *buf, size_t len) {
+  size_t size{0};
+  while (len-- && *buf++)
+    size ++;
+  return size;
+}
+
+
+class Walker {
+ private:
+  std::stringstream &ss_;
+  unsigned int w_;
+  std::string marker_;
+
+ public:
+  ~Walker() {}
+
+  Walker(std::stringstream &ss, unsigned int w):
+    ss_{ss}, w_{w}, marker_{} {}
+
+  void set_marker(std::string m) { marker_.assign(m); }
+
+  int run(int max, std::string path, std::string prefix) {
+    std::vector<std::string> dirs, files;
+    size_t total{0};
+
+    DIR *d = opendir(path.c_str());
+    assert(d != nullptr);
+
+    for (;;) {
+      struct dirent *out = ::readdir(d);
+      if (!out)
+        break;
+      if (out->d_name[0] == '.')
+        continue;
+      const size_t length = bounded_length(out->d_name, w_ + 1);
+      switch (out->d_type) {
+        case DT_DIR:
+          if (w_ == length)
+            dirs.emplace_back(out->d_name);
+          break;
+        case DT_REG:
+          if (w_ + 1 == length) {
+            std::stringstream ss;
+            ss << prefix << out->d_name;
+            std::string s = ss.str();
+            BlobId blobid;
+            if (blobid.decode(s))
+              files.emplace_back(std::move(s));
+          }
+          break;
+      }
+    }
+    closedir(d);
+    d = nullptr;
+
+    if (!files.empty()) {
+      // TODO(jfs): should we filter before sorting?
+      std::sort(files.begin(), files.end());
+      for (auto &f : files) {
+        if (marker_.empty() || f > marker_) {
+          ss_ << f << CRLF;
+          total++;
+        }
+      }
+    }
+
+    // Recurse on hashed directories
+    if (!dirs.empty()) {
+      std::sort(dirs.begin(), dirs.end());
+      for (const auto &d : dirs) {
+        if (total >= max)
+          break;
+        if (marker_.empty() || d > marker_ || _starts_with(marker_, d))
+          total += run(max - total, path + '/' + d, prefix + d);
+      }
+    }
+
+    return total;
+  }
+};
+
+void BlobService::do_v1_list(HttpRequest *req, HttpReply *rep) {
+  auto marker = req->url.substr(
+      _index_next(req->url, sizeof(URL_PREFIX_V1_LIST)-1));
+
   std::stringstream ss;
-  ss << "plop" << "\r\n";
-  auto s = ss.str();
+  Walker walker(ss, server->config.hash_width);
+  if (!marker.empty())
+    walker.set_marker(marker);
+  walker.run(1000, server->config.basedir, "");
+  std::string body = ss.str();
+
+  rep->headers["Content-Type"] = "text/plain";
+  req->span_exec->Finish();
+  req->span_active->Finish();
+  rep->write_headers(200, -1);
+  rep->write_chunk(body.data(), body.size());
+  rep->write_final_chunk();
+}
+
+static bool _mkdir(int fd_basedir, std::string path, bool retry) {
+  errno = 0;
+  if (0 == ::mkdirat(fd_basedir, path.c_str(), 0755))
+    return true;
+  if (!retry)
+    return false;
+
+  // Lazy creation of the parent
+  auto parent = path_parent(path);
+  if (!_mkdir(fd_basedir, parent, true))
+    return false;
+
+  errno = 0;
+  return 0 == ::mkdirat(fd_basedir, path.c_str(), 0755);
+}
+
+void BlobService::do_v1_blob_put(
+    HttpRequest *req,
+    HttpReply *rep,
+    const std::string &path) {
+  FileAppender chunk;
+  int err{0};
+  bool retryable{true};
+
+  std::string path_temp{path};
+  path_temp += "@";
+
+  // Open the temp file with a lazy autocreation of the directory
+label_retry_open:
+  chunk.fd = ::openat(fd_basedir, path_temp.c_str(), FLAGS_OPEN, 0644);
+  if (chunk.fd < 0) {
+    if (errno == ENOENT && retryable) {
+      retryable = false;
+      err = 0;
+      if (_mkdir(fd_basedir, path_parent(path_temp), true))
+        goto label_retry_open;
+    }
+    err = errno;
+    goto label_reply;
+  }
+
+  // Check the existence of the final file
+  if (0 == ::faccessat(fd_basedir, path.c_str(), F_OK, 0)) {
+    LOG(INFO) << "Final chunk exists";
+    err = EEXIST;
+    goto label_rollback;
+  }
+
+  // Perform the upload with a special treatment for the body
+  errno = 0;
+  err = (req->parser.flags & F_CHUNKED)
+    ?  _upload_body_chunked(req, &chunk) : _upload_body_inline(req, &chunk);
+  req->bytes_in += chunk.written;
+
+  if (err == 0) {
+    // Validate the file under its final name & size
+    if (0 != (err = chunk.truncate()))
+      goto label_rollback;
+    if (0 != ::renameat(fd_basedir, path_temp.c_str(),
+                        fd_basedir, path.c_str())) {
+      err = errno;
+      goto label_rollback;
+    }
+
+    rep->write_error(201);
+
+    // Post-Synchronous persistence
+    _upload_finish(chunk);
+  } else {
+label_rollback:
+    assert(err != 0);
+    if (0 != ::unlinkat(fd_basedir, path_temp.c_str(), 0)) {
+      if (errno != ENOENT)
+        SYSLOG(ERROR) << "Orphan temporary chunk: " << path_temp;
+    }
+label_reply:
+    assert(err != 0);
+    req->span_exec->Finish();
+    req->span_active->Finish();
+    return rep->write_error(_errno_to_http(err));
+  }
+}
+
+void BlobService::_upload_finish(const FileAppender &chunk) {
+  // Advice the kernel cache about the content
+  if (server->config.flag_fadvise_upload) {
+    ::posix_fadvise64(chunk.fd, 0, chunk.written, POSIX_FADV_DONTNEED);
+  }
+  // Send a fsync() if configured so
+  if (server->config.flag_fsync_data) {
+    ::fdatasync(chunk.fd);
+  } else if (server->config.flag_fsync_dir) {
+    ::fdatasync(fd_basedir);
+  }
+}
+
+#define FIELD(N) StatField {offsetof(BlobStats, N), #N}
+
+struct StatField { uint32_t offt; const char *name; };
+
+static StatField all_fields[] = {
+  FIELD(b_in),
+  FIELD(b_out),
+
+  FIELD(t_info),
+  FIELD(t_status),
+  FIELD(t_put),
+  FIELD(t_get),
+  FIELD(t_head),
+  FIELD(t_delete),
+  FIELD(t_list),
+  FIELD(t_other),
+
+  FIELD(h_info),
+  FIELD(h_status),
+  FIELD(h_put),
+  FIELD(h_get),
+  FIELD(h_head),
+  FIELD(h_delete),
+  FIELD(h_list),
+  FIELD(h_other),
+
+  FIELD(c_200),
+  FIELD(c_201),
+  FIELD(c_204),
+  FIELD(c_206),
+  FIELD(c_400),
+  FIELD(c_403),
+  FIELD(c_404),
+  FIELD(c_405),
+  FIELD(c_408),
+  FIELD(c_409),
+  FIELD(c_418),
+  FIELD(c_499),
+  FIELD(c_502),
+  FIELD(c_503),
+  FIELD(c_50X),
+};
+
+static std::string _encode_json(const BlobStats &st) {
+  auto base = reinterpret_cast<const uint8_t*>(&st);
+  std::stringstream builder;
+  char separator = '{';
+  for (const auto &f : all_fields) {
+    const uint64_t v = *reinterpret_cast<const uint64_t*>(base + f.offt);
+    builder << separator << '"' << f.name << '"' << ':' << v;
+    separator = ',';
+  }
+  builder << '}';
+  return builder.str();
+}
+
+void BlobService::do_v1_status(HttpRequest *req, HttpReply *rep) {
+  rep->headers["Content-Type"] = "text/json";
+  std::string s = _encode_json(server->stats);
+  req->span_exec->Finish();
+  req->span_active->Finish();
   rep->write_headers(200, -1);
   rep->write_chunk(s.data(), s.size());
   rep->write_final_chunk();
-  return true;
 }
 
-#define MESSAGE_INFO "gunkan object-storage blob v1"
-
-bool BlobService::do_info(HttpRequest *req, HttpReply *rep) {
-  (void) req;
-  return rep->write_headers(200, -1)
-    && rep->write_chunk(const_cast<char*>(MESSAGE_INFO), sizeof(MESSAGE_INFO)-1)
-    && rep->write_final_chunk();
+void BlobService::do_info(HttpRequest *req, HttpReply *rep) {
+  rep->headers["Content-Type"] = "text/plain";
+  req->span_exec->Finish();
+  req->span_active->Finish();
+  rep->write_headers(200, -1);
+  rep->write_chunk(const_cast<char *>(MESSAGE_INFO), sizeof(MESSAGE_INFO) - 1);
+  rep->write_final_chunk();
 }

@@ -16,12 +16,12 @@ macro (option_or_system _PREFIX _LIB)
 		set (${_PREFIX}_LIBRARY_DIRS ${${_PREFIX}_LIBDIR} )
 	endif ()
 
-    if (DEFINED ${_PREFIX}_LIBS)
-        MESSAGE("${_PREFIX}_LIBS")
-        set (${_PREFIX}_LIBRARIES ${${_PREFIX}_LIBS})
-    else ()
-        MESSAGE("${_PREFIX} xxx")
-        find_library (${_PREFIX}_LIBRARIES ${_LIB} ${${_PREFIX}_LIBRARY_DIRS})
+  if (DEFINED ${_PREFIX}_LIBS)
+    MESSAGE("${_PREFIX}_LIBS")
+    set (${_PREFIX}_LIBRARIES ${${_PREFIX}_LIBS})
+  else ()
+    MESSAGE("${_PREFIX} xxx")
+    find_library (${_PREFIX}_LIBRARIES ${_LIB} ${${_PREFIX}_LIBRARY_DIRS})
 	endif ()
 
     # Check expected elements are present

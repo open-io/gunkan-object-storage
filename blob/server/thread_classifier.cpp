@@ -7,7 +7,16 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-#include "internals.hpp"
+#include "threads.hpp"
+
+#include <opentracing/mocktracer/tracer.h>
+#include <opentracing/mocktracer/in_memory_recorder.h>
+
+#include <sstream>
+
+#define BATCH_ACCEPTOR 16
+#define SLEEP_ACCEPTOR 1000
+
 
 RequestAcceptor::~RequestAcceptor() {
   if (fd_server >= 0) {
@@ -16,104 +25,77 @@ RequestAcceptor::~RequestAcceptor() {
   }
 }
 
-RequestAcceptor::RequestAcceptor(BlobServer *srv) :
-  server{srv}, fd_server{-1} {}
+RequestAcceptor::RequestAcceptor(ThreadRunner *th) :
+  threads{th}, fd_server{-1} {}
 
 dill_coroutine void RequestAcceptor::consume(int bundle) {
   const int cli_flags = SOCK_NONBLOCK|SOCK_CLOEXEC;
-  BlobAddr addr{};
-  std::deque<BlobClient*> pending;
+  NetAddr addr{};
+  std::deque<std::shared_ptr<ActiveFD>> pending;
 
-  while (server->running()) {
+  while (flag_sys_running) {
+    bool eagain{false};
+
     // Accept a batch of connections to avoid switching to another
     // thread or coroutine.
     for (int i{0}; i < BATCH_ACCEPTOR; ++i) {
       socklen_t len{sizeof(addr)};
       int fd_cli = ::accept4(fd_server, &addr.sa, &len, cli_flags);
       if (fd_cli < 0) {
+        eagain = (errno == EAGAIN);
         break;
       }
-      pending.emplace_back(new BlobClient(server, fd_cli, addr));
+      pending.emplace_back(new ActiveFD(fd_cli, addr));
     }
 
-    if (pending.empty()) {
+    // start a coroutine for each connection
+    while (!pending.empty()) {
+      auto p = pending.front();
+      pending.pop_front();
+      dill_bundle_go(bundle, classify(std::move(p)));
+    }
+
+    if (eagain)
       (void) ::dill_fdin(fd_server, ::dill_now() + SLEEP_ACCEPTOR);
-    } else {
-      // start a coroutine for each connection
-      while (!pending.empty()) {
-        auto p = pending.front();
-        pending.pop_front();
-        dill_bundle_go(bundle, classify(p));
-      }
-    }
   }
 }
 
-static void _dump_request(HttpRequest *req __attribute__((unused))) {
-#if 0
-  DLOG(INFO)
-    << http_method_str((enum http_method)req->parser.method)
-    << " " << req->url;
-  for (auto e : req->headers) {
-    DLOG(INFO) << e.first << ": " << e.second;
-  }
-  DLOG(INFO) << "nread = " << req->parser.nread;
-  DLOG(INFO) << "content length = " << req->parser.content_length;
-  DLOG(INFO) << "chunked = " << static_cast<int>(req->parser.flags & F_CHUNKED);
-#endif
-}
-
-dill_coroutine void RequestAcceptor::classify(HttpRequest *req) {
-  int opt{0};
-  const int fd = req->client->fd;
-  const int64_t dl_headers = ::dill_now() + HTTP_TIMEOUT_HEADERS;
-
-  auto s = req->tracer->StartSpan("hdr");
-  bool rc = req->consume_headers(dl_headers);
-  s->Finish();
-  if (!rc)
-    goto label_exit;
-
-  _dump_request(req);
-
-  // Classify now
-  switch (req->parser.method) {
-    case HTTP_PUT:
-    case HTTP_COPY:
-    case HTTP_MOVE:
-    case HTTP_DELETE:
-      opt = static_cast<int>(server->threads.executor_be_read.tos);
-      setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &opt, sizeof(opt));
-      ::dill_fdclean(fd);
-      return server->threads.executor_be_write.receive(req);
-
-    case HTTP_GET:
-    case HTTP_HEAD:
-      opt = static_cast<int>(server->threads.executor_be_write.tos);
-      setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &opt, sizeof(opt));
-      ::dill_fdclean(fd);
-      return server->threads.executor_be_read.receive(req);
-
-    default:
-      HttpReply rep(req);
-      rep.write_error(405);
-  }
-
-label_exit:
-  ::dill_fdclean(fd);
-  ::close(fd);
-  DLOG(INFO) << "Acceptor -1 " << fd << " error";
-}
-
-dill_coroutine void RequestAcceptor::classify(BlobClient *c) {
-  std::unique_ptr<std::ostringstream> output{new std::ostringstream{}};
+dill_coroutine void RequestAcceptor::classify(
+    std::shared_ptr<ActiveFD> client) {
+  // Prepare a tracing context
   opentracing::mocktracer::MockTracerOptions options{};
   options.recorder = std::unique_ptr<opentracing::mocktracer::Recorder>{
-      new opentracing::mocktracer::JsonRecorder{std::move(output)}};
+      new opentracing::mocktracer::InMemoryRecorder};
+
   std::shared_ptr<opentracing::Tracer> tracer{
       new opentracing::mocktracer::MockTracer{std::move(options)}};
 
-  std::shared_ptr<BlobClient> client(c);
-  return classify(new HttpRequest(client, tracer));
-}
+  std::unique_ptr<HttpRequest> req(new HttpRequest(client, tracer));
 
+  req->span_active = tracer->StartSpan("active");
+
+  // Parse the headers
+  req->span_parse = req->tracer->StartSpan("parse", {
+    opentracing::ChildOf(&req->span_active->context())});
+  bool rc = req->consume_headers(::dill_now() + HTTP_TIMEOUT_HEADERS);
+  req->span_parse->Finish();
+
+  client->detach();
+
+  if (!rc) {
+    req->span_active->Finish();
+    return;
+  }
+
+  req->span_wait = tracer->StartSpan("wait", {
+        opentracing::FollowsFrom(&req->span_parse->context()),
+        opentracing::ChildOf(&req->span_active->context())});
+
+  if (req->read_only()) {
+    client->set_priority(threads->executor_be_read.tos);
+    return threads->executor_be_write.receive(std::move(req));
+  } else {
+    client->set_priority(threads->executor_be_write.tos);
+    return threads->executor_be_read.receive(std::move(req));
+  }
+}
