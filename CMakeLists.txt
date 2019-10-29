@@ -36,9 +36,9 @@ ENABLE_TESTING()
 
 add_definitions(-D_XOPEN_SOURCE=700)
 
-set(CMAKE_CXX_FLAGS "-g -pipe -Wall -Wextra -Werror")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -pipe -Wall -Wextra -Werror")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -fPIE -pie")
-set(CMAKE_CXX_FLAGS "-Wno-unused-variable")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable")
 
 set(CMAKE_CXX_FLAGS_DEBUG          "-O0 -fno-inline")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -fno-inline")
@@ -117,6 +117,7 @@ add_executable(gunkan-blob
     blob/server/time.cpp
     blob/server/strings.cpp
     blob/server/charset.cpp
+    blob/server/bytes.cpp
     blob/server/io.cpp
     blob/server/blobid.cpp
     blob/server/http.cpp

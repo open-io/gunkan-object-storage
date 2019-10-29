@@ -208,17 +208,6 @@ class BlobService : public HttpHandler {
       HttpRequest *req,
       HttpReply *rep,
       const std::string &path, bool body);
-
- private:
-  int _upload_body_inline(
-      HttpRequest *req,
-      FileAppender *chunk);
-
-  int _upload_body_chunked(
-      HttpRequest *req,
-      FileAppender *chunk);
-
-  void _upload_finish(const FileAppender &chunk);
 };
 
 

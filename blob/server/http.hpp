@@ -14,12 +14,15 @@
 #include <opentracing/tracer.h>
 
 #include <map>
+#include <deque>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 #include <mutex>  // NOLINT
 
 #include "io.hpp"
+#include "bytes.hpp"
 
 #define BUFLEN 2048
 
@@ -35,13 +38,6 @@ struct HttpReply;
 
 using Headers = std::map<std::string, std::string>;
 
-enum class HttpRequestParsingStep {
-  First = 0,
-  HeaderName = 1,
-  HeaderValue = 2,
-  Body = 3,
-};
-
 enum class HttpMethod {
   Get = 0,
   Head = 1,
@@ -51,11 +47,73 @@ enum class HttpMethod {
   Move = 5,
 };
 
+class Accumulator {
+ public:
+  ~Accumulator() {}
+  Accumulator(Accumulator &&o) = delete;
+  Accumulator(const Accumulator &o) = delete;
+  Accumulator() : ready_() {}
+  void Add(Slice s) { ready_.push_back(s); }
+
+ protected:
+  ssize_t flush_pending(FileAppender &fa);
+
+ protected:
+  std::deque<Slice> ready_;
+};
+
+class BodyReader : public WriterTo, public Accumulator {
+ public:
+  ~BodyReader() {}
+  BodyReader() : Accumulator() {}
+  BodyReader(BodyReader &&o) = delete;
+  BodyReader(const BodyReader &o) = delete;
+};
+
+class InlineBodyReader : public BodyReader {
+ public:
+  InlineBodyReader(const InlineBodyReader &o) = delete;
+
+  InlineBodyReader(InlineBodyReader &&o) = delete;
+
+  InlineBodyReader(ActiveFD &c, uint64_t l);
+
+  ~InlineBodyReader();
+
+  std::pair<int, uint64_t> WriteTo(FileAppender &fa) override;
+
+ private:
+  ssize_t transfer_zero_copy(FileAppender &fa);
+
+ private:
+  uint64_t total_;
+  uint64_t consumed_;
+  ActiveFD &client_;
+};
+
+class ChunkedBodyReader : public BodyReader {
+ public:
+  ChunkedBodyReader(const ChunkedBodyReader &o) = delete;
+
+  ChunkedBodyReader(ChunkedBodyReader &&o) = delete;
+
+  ChunkedBodyReader(ActiveFD &c, http_parser &p);
+
+  ~ChunkedBodyReader();
+
+  std::pair<int, uint64_t> WriteTo(FileAppender &fa) override;
+
+ private:
+  uint64_t consumed_;
+  ActiveFD &client_;
+  http_parser &parser_;
+};
 
 struct HttpRequest {
   std::shared_ptr<ActiveFD> client;
   Headers headers;
   std::shared_ptr<opentracing::Tracer> tracer;
+  std::shared_ptr<BodyReader> body;
 
   std::string url;
   uint64_t bytes_in;
@@ -70,15 +128,7 @@ struct HttpRequest {
   std::unique_ptr<opentracing::Span> span_wait;
   std::unique_ptr<opentracing::Span> span_exec;
 
-  // Pending body
-  std::vector<uint8_t> body;
-  size_t body_offset;
-
   // Work in progress
-  std::string hdr_field;
-  std::string hdr_value;
-
-  HttpRequestParsingStep step;
   http_parser parser;
 
 
@@ -96,17 +146,11 @@ struct HttpRequest {
 
   std::unique_ptr<HttpReply> make_reply();
 
-  HttpMethod method() const;
+  HttpMethod GetMethod() const;
 
-  bool read_only() const;
+  bool IsReadOnly() const;
 
   bool consume_headers(int64_t dl);
-
-  void add_body(std::vector<uint8_t> b, size_t offset);
-
-  /* Store in `headers` the key value pair stored in `hdr_field` and
-   * `hdr`value`, then reset both fields. */
-  void save_header();
 };
 
 

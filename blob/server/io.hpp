@@ -15,6 +15,11 @@
 #include <netinet/in.h>
 
 #include <cstdint>
+#include <vector>
+#include <utility>
+#include <memory>
+
+#include "bytes.hpp"
 
 enum class IpTos {
   Default = 0,
@@ -48,7 +53,6 @@ struct FD {
   void close();
 };
 
-
 struct FileAppender : public FD {
   int64_t written;
   int64_t allocated;
@@ -63,6 +67,17 @@ struct FileAppender : public FD {
   int splice(int from, int64_t size);
 };
 
+class WriterTo {
+ public:
+  /**
+   * Perform a zero-copy data transfer from the current Reader to the
+   * @param fa the target of the data transfer
+   * @return true and the size that has been transferred upon success, or
+   *         false and a number of bytes actually transferred in case of error
+   *         (and errno is set).
+   */
+  virtual std::pair<int, uint64_t> WriteTo(FileAppender &fa) = 0;
+};
 
 struct ActiveFD : public FD {
   NetAddr peer;
@@ -77,7 +92,13 @@ struct ActiveFD : public FD {
 
   ActiveFD(int f, const NetAddr &a);
 
-  void set_priority(IpTos tos);
+  void SetPrio(IpTos tos);
+
+  int Sendfile(int from, int64_t size);
+
+  int Read(Slice *out, int64_t dl);
+
+  int ReadIn(std::shared_ptr<Block> block, Slice *out, int64_t dl);
 };
 
 
@@ -107,6 +128,10 @@ ssize_t _read_at_least(int fd, uint8_t *base, size_t max, size_t min,
 
 bool _write_full(int fd, const uint8_t *buf, size_t len, int64_t dl);
 
-bool _writev_full(int fd, struct iovec *iov, size_t len, int64_t dl);
+bool _writev_full(int fd, iovec *iov, size_t len, int64_t dl);
+
+bool _writev_full(int fd, std::vector<iovec> &iov, int64_t dl);
+
+bool _writev_full(int fd, std::vector<Slice> &slices, int64_t dl);
 
 #endif  // BLOB_SERVER_IO_HPP_

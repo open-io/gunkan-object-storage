@@ -29,8 +29,7 @@ RequestAcceptor::RequestAcceptor(ThreadRunner *th) :
   threads{th}, fd_server{-1} {}
 
 dill_coroutine void RequestAcceptor::consume(int bundle) {
-  const int cli_flags = SOCK_NONBLOCK|SOCK_CLOEXEC;
-  NetAddr addr{};
+  const int cli_flags = SOCK_NONBLOCK | SOCK_CLOEXEC;
   std::deque<std::shared_ptr<ActiveFD>> pending;
 
   while (flag_sys_running) {
@@ -39,6 +38,7 @@ dill_coroutine void RequestAcceptor::consume(int bundle) {
     // Accept a batch of connections to avoid switching to another
     // thread or coroutine.
     for (int i{0}; i < BATCH_ACCEPTOR; ++i) {
+      NetAddr addr{};
       socklen_t len{sizeof(addr)};
       int fd_cli = ::accept4(fd_server, &addr.sa, &len, cli_flags);
       if (fd_cli < 0) {
@@ -91,11 +91,11 @@ dill_coroutine void RequestAcceptor::classify(
         opentracing::FollowsFrom(&req->span_parse->context()),
         opentracing::ChildOf(&req->span_active->context())});
 
-  if (req->read_only()) {
-    client->set_priority(threads->executor_be_read.tos);
+  if (req->IsReadOnly()) {
+    client->SetPrio(threads->executor_be_read.tos);
     return threads->executor_be_write.receive(std::move(req));
   } else {
-    client->set_priority(threads->executor_be_write.tos);
+    client->SetPrio(threads->executor_be_write.tos);
     return threads->executor_be_read.receive(std::move(req));
   }
 }

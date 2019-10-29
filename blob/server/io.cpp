@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/uio.h>
+#include <sys/sendfile.h>
 
 #include <libdill.h>
 
@@ -89,6 +90,17 @@ bool _writev_full(int fd, struct iovec *iov, size_t nb, int64_t dl) {
   return true;
 }
 
+bool _writev_full(int fd, std::vector<iovec> &iov, int64_t dl) {
+  return _writev_full(fd, iov.data(), iov.size(), dl);
+}
+
+bool _writev_full(int fd, std::vector<Slice> &slices, int64_t dl) {
+  std::vector<iovec> iov;
+  for (auto &s : slices)
+    iov.push_back({s.data(), s.size()});
+  return _writev_full(fd, iov, dl);
+}
+
 size_t compute_iov_size(iovec *iov, size_t nb) {
   size_t total{0};
   if (iov) {
@@ -124,9 +136,39 @@ ActiveFD::ActiveFD(int f, const NetAddr &a): FD(f), peer{a} {}
 
 ActiveFD::~ActiveFD() {}
 
-void ActiveFD::set_priority(IpTos tos) {
+void ActiveFD::SetPrio(IpTos tos) {
   int opt = static_cast<int>(tos);
   setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &opt, sizeof(opt));
+}
+
+int ActiveFD::Sendfile(int from, int64_t size) {
+  return ::sendfile(fd, from, nullptr, size);
+}
+
+int ActiveFD::ReadIn(std::shared_ptr<Block> block, Slice *out, int64_t dl) {
+  ssize_t r;
+
+label_retry:
+  r = ::recv(fd, block->data(), block->size(), MSG_NOSIGNAL);
+  if (r < 0) {
+    if (errno == EINTR)
+      goto label_retry;
+    if (errno == EAGAIN) {
+      if (!::dill_fdin(fd, dl))
+        goto label_retry;
+      return ETIMEDOUT;
+    } else {
+      return errno;
+    }
+  }
+
+  *out = Slice(std::move(block), 0, r);
+  return 0;
+}
+
+int ActiveFD::Read(Slice *out, int64_t dl) {
+  std::shared_ptr<Block> block(new ArrayBlock<2048>());
+  return ReadIn(block, out, dl);
 }
 
 FileAppender::FileAppender() : FD(), written{0}, allocated{0} {}
