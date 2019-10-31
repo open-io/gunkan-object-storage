@@ -52,9 +52,9 @@ static void _configure_io_priority(int rt, int high) {
 
 dill_coroutine void RequestExecutor::consume(int bundle) {
   int64_t evt{0};
-  ssize_t r{-1};
-  std::deque<std::unique_ptr<HttpRequest>> pending;
+  std::vector<HttpRequest*> pending;
 
+  pending.reserve(BATCH_EXECUTOR);
   _configure_io_priority(ioprio_rt, ioprio_high);
 
   while (flag_sys_running) {
@@ -62,41 +62,36 @@ dill_coroutine void RequestExecutor::consume(int bundle) {
     for (int i{0}; i < BATCH_EXECUTOR; ++i) {
       if (queue.empty())
         break;
-      auto &p = queue.front();
-      std::unique_ptr<HttpRequest> copy(std::move(p));
+      pending.emplace_back(queue.front());
       queue.pop_front();
-      pending.push_back(std::move(copy));
     }
     latch.unlock();
 
     if (pending.empty()) {
       if (0 == ::dill_fdin(fd_wakeup, ::dill_now() + SLEEP_EXECUTOR)) {
-        r = ::read(fd_wakeup, &evt, sizeof(evt));
+        ssize_t r = ::read(fd_wakeup, &evt, sizeof(evt));
         (void) r;
       }
     } else {
-      while (!pending.empty()) {
-        auto &p = pending.front();
-        std::unique_ptr<HttpRequest> copy(std::move(p));
-        pending.pop_front();
-        dill_bundle_go(bundle, execute(std::move(copy)));
-      }
-      assert(pending.empty());
+      for (auto p : pending)
+        dill_bundle_go(bundle, execute(p));
+      pending.clear();
     }
   }
 }
 
-void RequestExecutor::receive(std::unique_ptr<HttpRequest> req) {
+void RequestExecutor::receive(HttpRequest *req) {
   latch.lock();
-  queue.push_back(std::move(req));
+  queue.emplace_back(req);
   latch.unlock();
 
   ssize_t w = ::write(fd_wakeup, &one64, 8);
   (void) w;
 }
 
-dill_coroutine void RequestExecutor::execute(std::unique_ptr<HttpRequest> req) {
+dill_coroutine void RequestExecutor::execute(HttpRequest *r) {
   do {
+    std::unique_ptr<HttpRequest> req(r);
     req->span_wait->Finish();
     auto rep = req->make_reply();
     handler->execute(std::move(req), std::move(rep));

@@ -25,7 +25,7 @@ func (*putCmd) Name() string     { return "put" }
 func (*putCmd) Synopsis() string { return "Put a BLOB into the store." }
 func (*putCmd) Usage() string {
 	return `
-put BLOB_ID
+put BLOB_ID [PATH_TO_BLOB]
 
 `
 }
@@ -36,8 +36,12 @@ func (p *putCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) s
 	var err error
 	var id blob.Id
 
-	if flag.NArg() != 2 {
+	if flag.NArg() < 2 {
 		log.Println("Missing Blob ID")
+		return subcommands.ExitFailure
+	}
+	if flag.NArg() > 3 {
+		log.Println("Too many arguments")
 		return subcommands.ExitFailure
 	}
 
@@ -46,7 +50,24 @@ func (p *putCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) s
 		return subcommands.ExitFailure
 	}
 
-	if err := client.Put(id, os.Stdin); err != nil {
+	if flag.NArg() == 3 {
+		path := flag.Arg(2)
+		if fin, err := os.Open(path); err != nil {
+			log.Printf("Failed to open %s: %v", path, err)
+			return subcommands.ExitFailure
+		} else {
+			defer fin.Close()
+			var finfo os.FileInfo
+			finfo, err = fin.Stat()
+			if err == nil {
+				err = client.PutN(id, fin, finfo.Size())
+			}
+		}
+	} else {
+		err = client.Put(id, os.Stdin)
+	}
+
+	if err != nil {
 		log.Printf("Put(%v) error: %v", id, err)
 		return subcommands.ExitFailure
 	} else {

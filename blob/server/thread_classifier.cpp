@@ -30,7 +30,9 @@ RequestAcceptor::RequestAcceptor(ThreadRunner *th) :
 
 dill_coroutine void RequestAcceptor::consume(int bundle) {
   const int cli_flags = SOCK_NONBLOCK | SOCK_CLOEXEC;
-  std::deque<std::shared_ptr<ActiveFD>> pending;
+  std::vector<ActiveFD*> pending;
+
+  pending.reserve(BATCH_ACCEPTOR);
 
   while (flag_sys_running) {
     bool eagain{false};
@@ -49,19 +51,18 @@ dill_coroutine void RequestAcceptor::consume(int bundle) {
     }
 
     // start a coroutine for each connection
-    while (!pending.empty()) {
-      auto p = pending.front();
-      pending.pop_front();
-      dill_bundle_go(bundle, classify(std::move(p)));
-    }
+    for (auto p : pending)
+      dill_bundle_go(bundle, classify(p));
+    pending.clear();
 
     if (eagain)
       (void) ::dill_fdin(fd_server, ::dill_now() + SLEEP_ACCEPTOR);
   }
 }
 
-dill_coroutine void RequestAcceptor::classify(
-    std::shared_ptr<ActiveFD> client) {
+dill_coroutine void RequestAcceptor::classify(ActiveFD *c) {
+  std::shared_ptr<ActiveFD> client(c);
+
   // Prepare a tracing context
   opentracing::mocktracer::MockTracerOptions options{};
   options.recorder = std::unique_ptr<opentracing::mocktracer::Recorder>{
@@ -70,7 +71,7 @@ dill_coroutine void RequestAcceptor::classify(
   std::shared_ptr<opentracing::Tracer> tracer{
       new opentracing::mocktracer::MockTracer{std::move(options)}};
 
-  std::unique_ptr<HttpRequest> req(new HttpRequest(client, tracer));
+  HttpRequest *req = new HttpRequest(client, tracer);
 
   req->span_active = tracer->StartSpan("active");
 
@@ -93,9 +94,9 @@ dill_coroutine void RequestAcceptor::classify(
 
   if (req->IsReadOnly()) {
     client->SetPrio(threads->executor_be_read.tos);
-    return threads->executor_be_write.receive(std::move(req));
+    return threads->executor_be_write.receive(req);
   } else {
     client->SetPrio(threads->executor_be_write.tos);
-    return threads->executor_be_read.receive(std::move(req));
+    return threads->executor_be_read.receive(req);
   }
 }

@@ -42,4 +42,3 @@ func (p *statusCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}
 		return subcommands.ExitSuccess
 	}
 }
-

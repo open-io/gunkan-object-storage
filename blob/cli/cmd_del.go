@@ -52,13 +52,13 @@ func (p *delCmd) Execute(_ context.Context, f *flag.FlagSet, _ ...interface{}) s
 			log.Printf("Delete(%v) error: %v", id, err)
 			return subcommands.ExitFailure
 		} else {
-		log.Printf("Delete(%v) OK", id)
+			log.Printf("Delete(%v) OK", id)
 			return subcommands.ExitSuccess
 		}
 	} else {
 		strongError := false
 
-		for i:=1; i<flag.NArg(); i++ {
+		for i := 1; i < flag.NArg(); i++ {
 			id := flag.Arg(i)
 			if err := delOne(id); err != nil {
 				if err != blob.ErrNotFound {

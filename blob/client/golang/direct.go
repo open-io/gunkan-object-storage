@@ -10,10 +10,11 @@
 package blob
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
-	"bufio"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -23,7 +24,7 @@ type httpClient struct {
 }
 
 func newHttpClient(url string) Client {
-	return &httpClient{ endpoint: url, client: http.Client{} }
+	return &httpClient{endpoint: url, client: http.Client{}}
 }
 
 func (self *httpClient) Close() error {
@@ -87,6 +88,40 @@ func (self *httpClient) Get(id Id) (io.ReadCloser, error) {
 		return rep.Body, nil
 	default:
 		return nil, ErrInternalError
+	}
+}
+
+func (self *httpClient) PutN(id Id, data io.Reader, size int64) error {
+	b := strings.Builder{}
+	b.WriteString("http://")
+	b.WriteString(self.endpoint)
+	b.WriteString("/v1/blob/")
+	id.EncodeIn(&b)
+
+	req, err := http.NewRequest("PUT", b.String(), data)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Add("Content-Length", strconv.FormatInt(size, 10))
+
+	rep, err := self.client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer rep.Body.Close()
+	switch rep.StatusCode {
+	case 404:
+		return ErrNotFound
+	case 403:
+		return ErrForbidden
+	case 409:
+		return ErrAlreadyExists
+	case 200, 201, 204:
+		return nil
+	default:
+		return ErrInternalError
 	}
 }
 

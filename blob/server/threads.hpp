@@ -46,7 +46,7 @@ struct RequestExecutor : public Thread {
 
   int fd_wakeup;
   std::mutex latch;
-  std::deque<std::unique_ptr<HttpRequest>> queue;
+  std::deque<HttpRequest*> queue;
 
   IpTos tos;
   bool ioprio_rt;
@@ -65,12 +65,12 @@ struct RequestExecutor : public Thread {
   dill_coroutine void consume(int bundle);
 
   /* Receive a pending Request from another worker */
-  void receive(std::unique_ptr<HttpRequest> req);
+  void receive(HttpRequest *req);
 
   /* Forward the call to client->execute()
    * Utility method that helps transmitting the ownership of the unique pointer
    * to the request. */
-  dill_coroutine void execute(std::unique_ptr<HttpRequest> req);
+  dill_coroutine void execute(HttpRequest *req);
 };
 
 
@@ -94,7 +94,7 @@ struct RequestAcceptor : public Thread {
    * Validate, parse and forward the message to the most appropriated
    * worker.
    */
-  dill_coroutine void classify(std::shared_ptr<ActiveFD> cli);
+  dill_coroutine void classify(ActiveFD *cli);
 };
 
 
@@ -123,6 +123,5 @@ struct ThreadRunner {
 
   void join();
 };
-
 
 #endif  // BLOB_SERVER_THREADS_HPP_
