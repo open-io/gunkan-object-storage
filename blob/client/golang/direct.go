@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -39,7 +38,7 @@ func (self *httpClient) Delete(id Id) error {
 	b.WriteString("/v1/blob/")
 	id.EncodeIn(&b)
 
-	req, err := http.NewRequest("DELETE", b.String(), nil)
+	req, err := makeRequest("DELETE", b.String(), nil)
 	if err != nil {
 		return err
 	}
@@ -50,16 +49,7 @@ func (self *httpClient) Delete(id Id) error {
 	}
 
 	defer rep.Body.Close()
-	switch rep.StatusCode {
-	case 404:
-		return ErrNotFound
-	case 403:
-		return ErrForbidden
-	case 200, 201, 204:
-		return nil
-	default:
-		return ErrInternalError
-	}
+	return codeMapper(rep.StatusCode)
 }
 
 func (self *httpClient) Get(id Id) (io.ReadCloser, error) {
@@ -69,7 +59,7 @@ func (self *httpClient) Get(id Id) (io.ReadCloser, error) {
 	b.WriteString("/v1/blob/")
 	id.EncodeIn(&b)
 
-	req, err := http.NewRequest("GET", b.String(), nil)
+	req, err := makeRequest("GET", b.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -80,14 +70,10 @@ func (self *httpClient) Get(id Id) (io.ReadCloser, error) {
 	}
 
 	switch rep.StatusCode {
-	case 404:
-		return nil, ErrNotFound
-	case 403:
-		return nil, ErrForbidden
 	case 200, 201, 204:
 		return rep.Body, nil
 	default:
-		return nil, ErrInternalError
+		return nil, codeMapper(rep.StatusCode)
 	}
 }
 
@@ -98,31 +84,19 @@ func (self *httpClient) PutN(id Id, data io.Reader, size int64) error {
 	b.WriteString("/v1/blob/")
 	id.EncodeIn(&b)
 
-	req, err := http.NewRequest("PUT", b.String(), data)
+	req, err := makeRequest("PUT", b.String(), data)
 	if err != nil {
 		return err
 	}
 
-	req.Header.Add("Content-Length", strconv.FormatInt(size, 10))
-
+	req.ContentLength = size
 	rep, err := self.client.Do(req)
 	if err != nil {
 		return err
 	}
 
 	defer rep.Body.Close()
-	switch rep.StatusCode {
-	case 404:
-		return ErrNotFound
-	case 403:
-		return ErrForbidden
-	case 409:
-		return ErrAlreadyExists
-	case 200, 201, 204:
-		return nil
-	default:
-		return ErrInternalError
-	}
+	return codeMapper(rep.StatusCode)
 }
 
 func (self *httpClient) Put(id Id, data io.Reader) error {
@@ -132,29 +106,19 @@ func (self *httpClient) Put(id Id, data io.Reader) error {
 	b.WriteString("/v1/blob/")
 	id.EncodeIn(&b)
 
-	req, err := http.NewRequest("PUT", b.String(), data)
+	req, err := makeRequest("PUT", b.String(), data)
 	if err != nil {
 		return err
 	}
 
+	req.ContentLength = -1
 	rep, err := self.client.Do(req)
 	if err != nil {
 		return err
 	}
 
 	defer rep.Body.Close()
-	switch rep.StatusCode {
-	case 404:
-		return ErrNotFound
-	case 403:
-		return ErrForbidden
-	case 409:
-		return ErrAlreadyExists
-	case 200, 201, 204:
-		return nil
-	default:
-		return ErrInternalError
-	}
+	return codeMapper(rep.StatusCode)
 }
 
 func (self *httpClient) List(max uint) ([]Id, error) {
@@ -175,7 +139,7 @@ func (self *httpClient) listRaw(max uint, marker string) ([]Id, error) {
 		b.WriteString(marker)
 	}
 
-	req, err := http.NewRequest("GET", b.String(), nil)
+	req, err := makeRequest("GET", b.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -187,15 +151,33 @@ func (self *httpClient) listRaw(max uint, marker string) ([]Id, error) {
 
 	defer rep.Body.Close()
 	switch rep.StatusCode {
-	case 404:
-		return nil, ErrNotFound
-	case 403:
-		return nil, ErrForbidden
 	case 200, 201, 204:
 		return unpackBlobIdArray(rep.Body)
 	default:
-		return nil, ErrInternalError
+		return nil, codeMapper(rep.StatusCode)
 	}
+}
+
+func (self *httpClient) Status() (Stats, error) {
+	b := strings.Builder{}
+	b.WriteString("http://")
+	b.WriteString(self.endpoint)
+	b.WriteString("/v1/status")
+
+	req, err := makeRequest("GET", b.String(), nil)
+	if err != nil {
+		return Stats{}, err
+	}
+
+	rep, err := self.client.Do(req)
+	if err != nil {
+		return Stats{}, err
+	}
+
+	defer rep.Body.Close()
+	var st Stats
+	err = json.NewDecoder(rep.Body).Decode(&st)
+	return st, err
 }
 
 func unpackBlobIdArray(body io.Reader) ([]Id, error) {
@@ -220,20 +202,27 @@ func unpackBlobIdArray(body io.Reader) ([]Id, error) {
 	}
 }
 
-func (self *httpClient) Status() (Stats, error) {
-	b := strings.Builder{}
-	b.WriteString("http://")
-	b.WriteString(self.endpoint)
-	b.WriteString("/v1/status")
-
-	if req, err := http.NewRequest("GET", b.String(), nil); err != nil {
-		return Stats{}, err
-	} else if rep, err := self.client.Do(req); err != nil {
-		return Stats{}, err
-	} else {
-		defer rep.Body.Close()
-		var st Stats
-		err := json.NewDecoder(rep.Body).Decode(&st)
-		return st, err
+func codeMapper(code int) error {
+	switch code {
+	case 404:
+		return ErrNotFound
+	case 403:
+		return ErrForbidden
+	case 409:
+		return ErrAlreadyExists
+	case 200, 201, 204:
+		return nil
+	default:
+		return ErrInternalError
 	}
+}
+
+func makeRequest(method string, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, path, body)
+	if err == nil {
+		req.Close = true
+		req.Header.Del("User-Agent")
+		req.Header.Del("Accept-Encoding")
+	}
+	return req, err
 }
