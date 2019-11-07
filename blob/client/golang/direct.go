@@ -221,7 +221,7 @@ func makeRequest(method string, path string, body io.Reader) (*http.Request, err
 	req, err := http.NewRequest(method, path, body)
 	if err == nil {
 		req.Close = true
-		req.Header.Del("User-Agent")
+		req.Header.Set("User-Agent", "gunkan-blob-go-api/1")
 		req.Header.Del("Accept-Encoding")
 	}
 	return req, err

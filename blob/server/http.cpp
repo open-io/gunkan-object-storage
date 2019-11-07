@@ -158,7 +158,11 @@ bool HttpRequest::consume_headers(int64_t dl) {
       if (parser.flags & F_CHUNKED) {
         body.reset(new ChunkedBodyReader(*client.get(), parser));
       } else {
+#if 0
         body.reset(new InlineBodyReader(*client.get(), parser.content_length));
+#else
+        body.reset(new ChunkedBodyReader(*client.get(), parser));
+#endif
       }
       if (consumed != r.size()) {
         r.skip(consumed);
@@ -419,6 +423,7 @@ struct BodyParsingContext {
 
   void Flush() {
     _writev_full(out.fd, posted, ::dill_now() + 10000);
+    ::dill_yield();
     posted.clear();
     accumulated = 0;
   }
@@ -439,7 +444,7 @@ static int _on_body(http_parser *p, const char *b, size_t l) {
   if (ctx->step != ParsingStep::Body)
     return -1;
   ctx->Add(ctx->current.sub(b, l));
-  if (ctx->accumulated < 8 * 1024 * 1024)
+  if (ctx->accumulated >= 8 * 1024 * 1024)
     ctx->Flush();
   return 0;
 }
@@ -459,7 +464,7 @@ static http_parser_settings cb_body{
 
 class BlockMaker {
  private:
-  size_t size = 8192, max = 2 * 1024 * 1024;
+  size_t size = 32768, max = 8 * 1024 * 1024;
  public:
   size_t grow() {
     size <<= 1;

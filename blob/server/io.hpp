@@ -54,8 +54,8 @@ struct FD {
 };
 
 struct FileAppender : public FD {
-  int64_t written;
-  int64_t allocated;
+  uint64_t written;
+  uint64_t allocated;
   bool extend_allowed;
 
   ~FileAppender() override;
@@ -65,6 +65,7 @@ struct FileAppender : public FD {
   void preallocate(int64_t size);
   int truncate();
   int splice(int from, int64_t size);
+  int sendfile(int from, int64_t size);
 };
 
 class WriterTo {
@@ -119,6 +120,10 @@ class Pipe {
   int head() const;
 
   int tail() const;
+
+  ssize_t spliceTo(int dst, size_t n) const;
+
+  ssize_t spliceFrom(int src, size_t n) const;
 };
 
 size_t compute_iov_size(iovec *iov, size_t nb);

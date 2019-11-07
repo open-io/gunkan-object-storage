@@ -14,8 +14,10 @@
 #include <sys/uio.h>
 #include <sys/sendfile.h>
 
+#include <glog/logging.h>
 #include <libdill.h>
 
+#include <cassert>
 #include <cstdlib>
 #include <cstdint>
 #include <cerrno>
@@ -194,75 +196,115 @@ int FileAppender::truncate() {
   return 0;
 }
 
+int FileAppender::sendfile(int from, int64_t size) {
+  int64_t sent{0};
+  while (sent < size) {
+    ssize_t sz = ::sendfile(fd, from, nullptr, size - sent);
+    switch (sz) {
+      default:
+        sent += sz;
+        // FALLTHROUGH
+      case 0:
+        continue;
+      case -1:
+        switch (errno) {
+          case EAGAIN:
+            ::dill_fdin(from, ::dill_now() + 1000);
+            // FALLTHROUGH
+          case EINTR:
+            continue;
+          default:
+            return -1;
+        }
+    }
+  }
+  return 0;
+}
+
+
+static int _dump(int fd, uint64_t &written, uint64_t &accumulated, Pipe &p) {
+  for (;;) {
+    ssize_t nw = p.spliceTo(fd, accumulated);
+  ::dill_yield();
+    switch (nw) {
+      case -1:
+        switch errno {
+          case EAGAIN:
+            ::dill_fdout(fd, ::dill_now() + 1000);
+            // FALLTHROUGH
+          case EINTR:
+            continue;
+          default:
+            return errno;
+        }
+      case 0:
+        return EOF;
+      default:
+        written += nw;
+        accumulated -= nw;
+        return 0;
+    }
+  }
+}
+
 int FileAppender::splice(int from, int64_t size) {
-  const int64_t extent{64 * 1024 * 1024}, batch{8 * 1024 * 1024};
+  const auto usize = static_cast<uint64_t>(size);
+  const int64_t extent{64 * 1024 * 1024};
+  size_t batch{8 * 1024 * 1024};
   Pipe p;
-  bool eof{false};
 
-  if (!p.init())
+  // Get a large pipe
+  if (!p.init()) {
     return errno;
+  } else {
+    int arg = batch;
+    ::fcntl(p.head(), F_SETPIPE_SZ, arg);
+    batch = ::fcntl(p.head(), F_GETPIPE_SZ);
+  }
 
-  while (!eof && written < size) {
-    int64_t accumulated{0};
+  uint64_t accumulated{0};
+  int err{0};
+  bool full{false};
 
-    ::dill_yield();
-
-    // Load the pipe
-    while (accumulated < batch && !eof) {
-      ssize_t rc = ::splice(
-          from, nullptr, p.head(), nullptr,
-          batch, SPLICE_F_NONBLOCK | SPLICE_F_MOVE);
-      switch (rc) {
+  while (!err && (size < 0 || accumulated + written < usize)) {
+    // Load the pipe but not too much
+    for (int i{0}; i++ < 4 && accumulated < batch;) {
+      ssize_t nr = p.spliceFrom(from, batch);
+      switch (nr) {
         case -1:
-          if (errno == EINTR)
-            continue;
-          if (errno == EAGAIN) {
-            if (accumulated > 0)
-              goto label_dump;
-            ::dill_fdin(from, ::dill_now() + 2000);
-            continue;
+          switch (errno) {
+            case EAGAIN:
+              if (accumulated > 0)
+                goto label_dump;
+              ::dill_fdin(from, ::dill_now() + 5000);
+              // FALLTHROUGH
+            case EINTR:
+              continue;
+            default:
+              return errno;
           }
-          return errno;
         case 0:
-          eof = true;
-          continue;
+          goto label_finish;
         default:
-          accumulated += rc;
+          accumulated += nr;
           continue;
       }
     }
 
 label_dump:
-    // Maybe extend the output
-    if (written + accumulated < allocated) {
+    if (written + accumulated < allocated)
       preallocate(extent);
-    }
-
-    // Dump the pipe
-    while (accumulated > 0) {
-      ssize_t rc = ::splice(p.tail(), nullptr, fd, nullptr,
-                            static_cast<size_t>(accumulated),
-                            SPLICE_F_NONBLOCK | SPLICE_F_MOVE);
-      switch (rc) {
-        case -1:
-          if (errno == EINTR)
-            continue;
-          if (errno == EAGAIN) {
-            ::dill_fdout(fd, ::dill_now() + 2000);
-            continue;
-          }
-          return errno;
-        case 0:
-          return EBADF;
-        default:
-          written += rc;
-          accumulated -= rc;
-          continue;
-      }
-    }
+    if (accumulated > 0)
+      err = _dump(fd, written, accumulated, p);
   }
 
-  return 0;
+label_finish:
+  if (!err && accumulated > 0)
+    err = _dump(fd, written, accumulated, p);
+
+  assert(accumulated == 0 || err != 0);
+
+  return err;
 }
 
 Pipe::Pipe() : fd{-1, -1} {}
@@ -275,8 +317,18 @@ Pipe::~Pipe() {
   fd[0] = fd[1] = -1;
 }
 
-bool Pipe::init() { return 0 == ::pipe(fd); }
+bool Pipe::init() { return 0 == ::pipe2(fd, O_NONBLOCK); }
 
 int Pipe::head() const { return fd[0]; }
 
 int Pipe::tail() const { return fd[1]; }
+
+ssize_t Pipe::spliceTo(int dst, size_t n) const {
+  return ::splice(head(), nullptr, dst, nullptr, n,
+                  SPLICE_F_NONBLOCK|SPLICE_F_MOVE|SPLICE_F_GIFT);
+}
+
+ssize_t Pipe::spliceFrom(int src, size_t n) const {
+  return ::splice(src, nullptr, tail(), nullptr, n,
+                  SPLICE_F_NONBLOCK|SPLICE_F_MOVE|SPLICE_F_GIFT);
+}
