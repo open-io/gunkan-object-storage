@@ -17,6 +17,7 @@ import (
 
 func main() {
 	rootCmd := cmd_kv_server.MainCommand()
+	rootCmd.Use = "gunkan-kv-rocksdb"
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalln("Command error:", err)
 	}

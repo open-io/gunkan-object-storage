@@ -6,7 +6,9 @@ AUTO=
 AUTO+= pkg/kv-proto/kv.pb.go
 
 all: prepare
-	$(GO) install $(BASE)
+	$(GO) install $(BASE)/cmd/gunkan
+	$(GO) install $(BASE)/cmd/gunkan-blob
+	$(GO) install $(BASE)/cmd/gunkan-kv-rocksdb
 
 prepare: $(AUTO)
 
@@ -16,7 +18,7 @@ pkg/kv-proto/%.pb.go: api/kv.proto
 clean:
 	-rm $(AUTO)
 
-.PHONY: all prepare clean test bench fmt try
+.PHONY: all prepare clean test bench fmt
 
 fmt:
 	find * -type f -name '*.go' \

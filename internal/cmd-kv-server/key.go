@@ -46,11 +46,11 @@ func (n *KeyVersion) DecodeBytes(b []byte) error {
 }
 
 const (
-	parsingBase = iota
-	parsingKey = iota
+	parsingBase    = iota
+	parsingKey     = iota
 	parsingVersion = iota
-	parsingActive = iota
-	parsingDone = iota
+	parsingActive  = iota
+	parsingDone    = iota
 )
 
 func (n *KeyVersion) DecodeString(s string) error {

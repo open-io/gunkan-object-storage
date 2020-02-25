@@ -29,8 +29,8 @@ type Config struct {
 }
 
 type Service struct {
-	cfg   Config
-	db *gorocksdb.DB
+	cfg Config
+	db  *gorocksdb.DB
 }
 
 func NewService(cfg Config) (*Service, error) {
