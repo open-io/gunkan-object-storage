@@ -1,5 +1,5 @@
 //
-// Copyright 2019 Jean-Francois Smigielski
+// Copyright 2019-2020 Jean-Francois Smigielski
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -10,35 +10,29 @@
 package cmd_blob_client
 
 import (
+	"fmt"
 	"github.com/jfsmig/object-storage/pkg/blob-client"
 	"github.com/spf13/cobra"
-
-	"encoding/json"
-	"os"
 )
 
-func StatusCommand() *cobra.Command {
+func HealthCommand() *cobra.Command {
 	var cfg config
 
 	client := &cobra.Command{
-		Use:     "status",
-		Aliases: []string{"stats", "stat"},
-		Short:   "Get the usage statistics of a BLOB service",
+		Use:     "ping",
+		Aliases: []string{"health"},
+		Short:   "Check the health of a BLOB service",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := gunkan_blob_client.Dial(cfg.url)
 			if err != nil {
 				return err
 			}
-
-			st, err := client.Status();
+			state, err := client.Health()
 			if err != nil {
 				return err
-			} else {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				enc.Encode(&st)
-				return nil
 			}
+			fmt.Print(state)
+			return nil
 		},
 	}
 

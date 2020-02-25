@@ -3,15 +3,15 @@ GO=go
 PROTOC=protoc
 
 AUTO=
-AUTO+= pkg/kv-client/kv.pb.go
+AUTO+= pkg/kv-proto/kv.pb.go
 
 all: prepare
 	$(GO) install $(BASE)
 
 prepare: $(AUTO)
 
-pkg/kv-client/%.pb.go: api/kv.proto
-	$(PROTOC) -I api api/kv.proto --go_out=plugins=grpc:pkg/kv-client
+pkg/kv-proto/%.pb.go: api/kv.proto
+	$(PROTOC) -I api api/kv.proto --go_out=plugins=grpc:pkg/kv-proto
 
 clean:
 	-rm $(AUTO)

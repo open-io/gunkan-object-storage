@@ -1,4 +1,9 @@
-pkg/kv-client/kv.pb.go
+pkg/kv-proto/kv.pb.go
+./object-storage
+./blob-client
+./blob-server
+./kv-client
+./kv-server
 
 # Jetbrains IDE
 cmake-build-*/

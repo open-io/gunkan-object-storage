@@ -1,5 +1,5 @@
 //
-// Copyright 2019 Jean-Francois Smigielski
+// Copyright 2019-2020 Jean-Francois Smigielski
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -10,9 +10,10 @@
 package gunkan_kv_client
 
 import (
-	"context"
+	kv "github.com/jfsmig/object-storage/pkg/kv-proto"
 	"google.golang.org/grpc"
-	_ "nanomsg.org/go/mangos/v2/transport/all"
+
+	"context"
 	"time"
 )
 
@@ -68,8 +69,8 @@ type grpcClient struct {
 }
 
 func (self *grpcClient) Get(ctx context.Context, base, key string) (string, error) {
-	client := NewKVClient(self.cnx)
-	req := GetRequest{Base: base, Key: key, Version: 0}
+	client := kv.NewKVClient(self.cnx)
+	req := kv.GetRequest{Base: base, Key: key, Version: 0}
 	rep, err := client.Get(ctx, &req)
 	if err != nil {
 		return "", err
@@ -79,8 +80,8 @@ func (self *grpcClient) Get(ctx context.Context, base, key string) (string, erro
 }
 
 func (self *grpcClient) Health(ctx context.Context) (string, error) {
-	client := NewKVClient(self.cnx)
-	rep, err := client.Health(ctx, &None{})
+	client := kv.NewKVClient(self.cnx)
+	rep, err := client.Health(ctx, &kv.None{})
 	if err != nil {
 		return "", nil
 	}
@@ -88,8 +89,8 @@ func (self *grpcClient) Health(ctx context.Context) (string, error) {
 }
 
 func (self *grpcClient) List(ctx context.Context, base, marker string) ([]ListItem, error) {
-	client := NewKVClient(self.cnx)
-	req := ListRequest{Base: base, Marker: marker, MarkerVersion: 0, Max: 1000}
+	client := kv.NewKVClient(self.cnx)
+	req := kv.ListRequest{Base: base, Marker: marker, MarkerVersion: 0, Max: 1000}
 	rep, err := client.List(ctx, &req)
 	if err != nil {
 		return []ListItem{}, err
@@ -103,23 +104,23 @@ func (self *grpcClient) List(ctx context.Context, base, marker string) ([]ListIt
 }
 
 func (self *grpcClient) Put(ctx context.Context, base, key string, value string) error {
-	client := NewKVClient(self.cnx)
-	req := PutRequest{Base: base, Key: key, Version: uint64(time.Now().UnixNano()), Value: value}
+	client := kv.NewKVClient(self.cnx)
+	req := kv.PutRequest{Base: base, Key: key, Version: uint64(time.Now().UnixNano()), Value: value}
 	_, err := client.Put(ctx, &req)
 	return err
 }
 
 func (self *grpcClient) Delete(ctx context.Context, base, key string) error {
-	client := NewKVClient(self.cnx)
-	req := DeleteRequest{Base: base, Key: key, Version: uint64(time.Now().UnixNano())}
+	client := kv.NewKVClient(self.cnx)
+	req := kv.DeleteRequest{Base: base, Key: key, Version: uint64(time.Now().UnixNano())}
 	_, err := client.Delete(ctx, &req)
 	return err
 }
 
 func (self *grpcClient) Status(ctx context.Context) (Stats, error) {
 	var st Stats
-	client := NewKVClient(self.cnx)
-	st0, err := client.Status(ctx, &None{})
+	client := kv.NewKVClient(self.cnx)
+	st0, err := client.Status(ctx, &kv.None{})
 	if err == nil {
 		st = Stats{
 			B_in:     st0.BIn,

@@ -1,5 +1,5 @@
 //
-// Copyright 2019 Jean-Francois Smigielski
+// Copyright 2019-2020 Jean-Francois Smigielski
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -11,16 +11,18 @@ package cmd_blob_client
 
 import (
 	"github.com/spf13/cobra"
+
+	"errors"
 	"log"
 )
 
 func MainCommand() *cobra.Command {
 	client := &cobra.Command{
-		Use:     "client",
-		Aliases: []string{"cli"},
+		Use:     "cli",
+		Aliases: []string{"client"},
 		Short:   "Client of BLOB services",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return nil
+			return errors.New("Missing subcommand")
 		},
 	}
 	client.AddCommand(PutCommand())
@@ -44,4 +46,3 @@ func debug(id string, err error) {
 type config struct {
 	url string
 }
-

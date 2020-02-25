@@ -1,5 +1,5 @@
 //
-// Copyright 2019 Jean-Francois Smigielski
+// Copyright 2019-2020 Jean-Francois Smigielski
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -10,7 +10,7 @@
 package main
 
 import (
-	"github.com/jfsmig/object-storage/pkg/cmd-kv-server"
+	"github.com/jfsmig/object-storage/internal/cmd-kv-server"
 
 	"log"
 )

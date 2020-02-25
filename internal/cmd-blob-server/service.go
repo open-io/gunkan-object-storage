@@ -1,5 +1,5 @@
 //
-// Copyright 2019 Jean-Francois Smigielski
+// Copyright 2019-2020 Jean-Francois Smigielski
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -20,10 +20,8 @@ import (
 
 type config struct {
 	uuid         string
-	addrLocal    string
 	addrAnnounce string
 	baseDir      string
-	flagSMR      bool
 
 	delayIoError   time.Duration
 	delayFullError time.Duration
@@ -42,16 +40,6 @@ type service struct {
 	lastIoError   time.Time
 	lastFullError time.Time
 }
-
-type handlerContext struct {
-	srv   *service
-	req   *http.Request
-	rep   http.ResponseWriter
-	code  int
-	stats srvStats
-}
-
-type handler func(ctx *handlerContext)
 
 func get(h handler) handler {
 	return func(ctx *handlerContext) {
@@ -146,53 +134,5 @@ func (ss *srvStats) merge(o srvStats) {
 	}
 	if o.hits > 0 {
 		atomic.AddUint64(&ss.hits, o.hits)
-	}
-}
-
-func handleInfo() handler {
-	return func(ctx *handlerContext) {
-		ctx.setHeader("Content-Type", "text/plain")
-		_, _ = ctx.Write([]byte(infoString))
-	}
-}
-
-func handleStatus() handler {
-	return func(ctx *handlerContext) {
-		var st = ctx.srv.stats
-		ctx.JSON(&st)
-	}
-}
-
-func handleHealth() handler {
-	return func(ctx *handlerContext) {
-		now := time.Now()
-		if ctx.srv.isError(now) {
-			ctx.replyCodeErrorMsg(http.StatusBadGateway, "Recent I/O errors")
-		} else if ctx.srv.isFull(now) {
-			// Consul reacts to http.StatusTooManyRequests with a warning but
-			// no error. It seems a better alternative to http.StatusInsufficientStorage
-			// that would mark the service as failed.
-			ctx.replyCodeErrorMsg(http.StatusTooManyRequests, "Full")
-		} else if ctx.srv.isOverloaded(now) {
-			ctx.replyCodeErrorMsg(http.StatusTooManyRequests, "Overloaded")
-		} else {
-			ctx.WriteHeader(http.StatusNoContent)
-		}
-	}
-}
-
-func handleBlob() handler {
-	return func(ctx *handlerContext) {
-		id := ctx.req.URL.Path[len(prefixBlob):]
-		switch ctx.Method() {
-		case "GET", "HEAD":
-			handleBlobGet(ctx, id)
-		case "PUT":
-			handleBlobPut(ctx, id)
-		case "DELETE":
-			handleBlobDel(ctx, id)
-		default:
-			ctx.WriteHeader(http.StatusMethodNotAllowed)
-		}
 	}
 }

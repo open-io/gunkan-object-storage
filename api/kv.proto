@@ -1,6 +1,15 @@
+//
+// Copyright 2019-2020 Jean-Francois Smigielski
+//
+// This software is supplied under the terms of the MIT License, a
+// copy of which should be located in the distribution where this
+// file was obtained (LICENSE.txt). A copy of the license may also be
+// found online at https://opensource.org/licenses/MIT.
+//
+
 syntax = "proto3";
 
-package gunkan.kv.client;
+package gunkan.kv.proto;
 
 service KV {
     rpc Health (None) returns (HealthReply) {}
@@ -35,10 +44,8 @@ message GetRequest {
 }
 
 message GetReply {
-    string base = 1;
-    string key = 2;
-    uint64 version = 3;
-    string value = 4;
+    uint64 version = 1;
+    string value = 2;
 }
 
 message ListRequest {

@@ -10,10 +10,10 @@
 package main
 
 import (
-	"github.com/jfsmig/object-storage/pkg/cmd-blob-client"
-	"github.com/jfsmig/object-storage/pkg/cmd-blob-server"
-	"github.com/jfsmig/object-storage/pkg/cmd-kv-client"
-	"github.com/jfsmig/object-storage/pkg/cmd-kv-server"
+	"github.com/jfsmig/object-storage/internal/cmd-blob-client"
+	"github.com/jfsmig/object-storage/internal/cmd-blob-server"
+	"github.com/jfsmig/object-storage/internal/cmd-kv-client"
+	"github.com/jfsmig/object-storage/internal/cmd-kv-server"
 	"github.com/spf13/cobra"
 
 	"errors"
@@ -29,10 +29,25 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(cmd_blob_server.MainCommand())
-	rootCmd.AddCommand(cmd_blob_client.MainCommand())
-	rootCmd.AddCommand(cmd_kv_server.MainCommand())
-	rootCmd.AddCommand(cmd_kv_client.MainCommand())
+	blobCmd := &cobra.Command{
+		Use:   "blob",
+		Short: "BLOB related tools",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New("Missing subcommand")
+		},
+	}
+
+	kvCmd := &cobra.Command{
+		Use:   "kv",
+		Short: "KV related tools",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New("Missing subcommand")
+		},
+	}
+
+	blobCmd.AddCommand(cmd_blob_server.MainCommand(), cmd_blob_client.MainCommand())
+	kvCmd.AddCommand(cmd_kv_server.MainCommand(), cmd_kv_client.MainCommand())
+	rootCmd.AddCommand(blobCmd, kvCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalln("Command error:", err)

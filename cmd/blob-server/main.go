@@ -10,7 +10,7 @@
 package main
 
 import (
-	"github.com/jfsmig/object-storage/pkg/cmd-blob-server"
+	"github.com/jfsmig/object-storage/internal/cmd-blob-server"
 	"log"
 )
 
