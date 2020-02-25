@@ -1,3 +1,5 @@
+pkg/kv-client/kv.pb.go
+
 # Jetbrains IDE
 cmake-build-*/
 .idea/

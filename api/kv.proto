@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package gunkan.kv.client;
+
+service KV {
+    rpc Health (None) returns (HealthReply) {}
+    rpc Status (None) returns (StatusReply) {}
+
+    rpc Put (PutRequest) returns (None) {}
+    rpc Delete (DeleteRequest) returns (None) {}
+    rpc Get (GetRequest) returns (GetReply) {}
+    rpc List (ListRequest) returns (ListReply) {}
+}
+
+message None {
+}
+
+message PutRequest {
+    string base = 1;
+    string key = 2;
+    uint64 version = 3;
+    string value = 4;
+}
+
+message DeleteRequest {
+    string base = 1;
+    string key = 2;
+    uint64 version = 3;
+}
+
+message GetRequest {
+    string base = 1;
+    string key = 2;
+    uint64 version = 3;
+}
+
+message GetReply {
+    string base = 1;
+    string key = 2;
+    uint64 version = 3;
+    string value = 4;
+}
+
+message ListRequest {
+    string base = 1;
+    string marker = 2;
+    uint64 markerVersion = 3;
+    uint32 max = 4;
+}
+
+message ListReply {
+    repeated ObjectId items = 1;
+}
+
+message ObjectId {
+    string key = 1;
+    uint64 version = 2;
+}
+
+message HealthReply {
+    string message = 1;
+}
+
+message StatusReply {
+    uint64 B_in = 1;
+    uint64 B_out = 2;
+    uint64 T_info = 3;
+    uint64 T_health = 4;
+    uint64 T_status = 5;
+    uint64 T_put = 6;
+    uint64 T_get = 7;
+    uint64 T_delete = 8;
+    uint64 T_list = 9;
+    uint64 H_info = 11;
+    uint64 H_health = 12;
+    uint64 H_status = 13;
+    uint64 H_put = 14;
+    uint64 H_get = 15;
+    uint64 H_delete = 16;
+    uint64 H_list = 17;
+    uint64 C_200 = 19;
+    uint64 C_400 = 20;
+    uint64 C_404 = 21;
+    uint64 C_409 = 22;
+    uint64 C_50X = 23;
+}
