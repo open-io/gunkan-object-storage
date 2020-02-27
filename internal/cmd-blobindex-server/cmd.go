@@ -7,10 +7,10 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package cmd_kv_server
+package cmd_blobindex_server
 
 import (
-	"github.com/jfsmig/object-storage/pkg/kv-proto"
+	"github.com/jfsmig/object-storage/pkg/blobindex-proto"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
@@ -55,7 +55,7 @@ func MainCommand() *cobra.Command {
 			}
 
 			srv := grpc.NewServer()
-			gunkan_kv_proto.RegisterKVServer(srv, service)
+			gunkan_blobindex_proto.RegisterBlobIndexServer(srv, service)
 			return srv.Serve(lis)
 		},
 	}

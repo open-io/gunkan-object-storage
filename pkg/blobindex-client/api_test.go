@@ -7,18 +7,4 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package main
-
-import (
-	"github.com/jfsmig/object-storage/internal/cmd-kv-server"
-
-	"log"
-)
-
-func main() {
-	rootCmd := cmd_kv_server.MainCommand()
-	rootCmd.Use = "gunkan-kv-rocksdb"
-	if err := rootCmd.Execute(); err != nil {
-		log.Fatalln("Command error:", err)
-	}
-}
+package gunkan_blobindex_client

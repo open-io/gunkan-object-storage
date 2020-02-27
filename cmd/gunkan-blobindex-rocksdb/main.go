@@ -7,4 +7,18 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package gunkan_kv_client
+package main
+
+import (
+	"github.com/jfsmig/object-storage/internal/cmd-blobindex-server"
+
+	"log"
+)
+
+func main() {
+	rootCmd := cmd_blobindex_server.MainCommand()
+	rootCmd.Use = "gunkan-blobindex-rocksdb"
+	if err := rootCmd.Execute(); err != nil {
+		log.Fatalln("Command error:", err)
+	}
+}

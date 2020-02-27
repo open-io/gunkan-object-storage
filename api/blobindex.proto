@@ -9,15 +9,25 @@
 
 syntax = "proto3";
 
-package gunkan.kv.proto;
+package gunkan.blobindex.proto;
 
-service KV {
+service BlobIndex {
+    // Return a simple status for the blob-index service
     rpc Health (None) returns (HealthReply) {}
+
+    // Get usage statistics for the blob-index service
     rpc Status (None) returns (StatusReply) {}
 
+    // Push a BLOB reference in the index
     rpc Put (PutRequest) returns (None) {}
+
+    // Remove a BLOB reference from the index
     rpc Delete (DeleteRequest) returns (None) {}
+
+    // Fetch the BLOB reference for the given Key
     rpc Get (GetRequest) returns (GetReply) {}
+
+    // Fetch a slice of keys of BLOB references from the index
     rpc List (ListRequest) returns (ListReply) {}
 }
 

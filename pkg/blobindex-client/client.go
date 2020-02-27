@@ -7,10 +7,10 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package gunkan_kv_client
+package gunkan_blobindex_client
 
 import (
-	kv "github.com/jfsmig/object-storage/pkg/kv-proto"
+	kv "github.com/jfsmig/object-storage/pkg/blobindex-proto"
 	"google.golang.org/grpc"
 
 	"context"
@@ -69,7 +69,7 @@ type grpcClient struct {
 }
 
 func (self *grpcClient) Get(ctx context.Context, base, key string) (string, error) {
-	client := kv.NewKVClient(self.cnx)
+	client := kv.NewBlobIndexClient(self.cnx)
 	req := kv.GetRequest{Base: base, Key: key, Version: 0}
 	rep, err := client.Get(ctx, &req)
 	if err != nil {
@@ -80,7 +80,7 @@ func (self *grpcClient) Get(ctx context.Context, base, key string) (string, erro
 }
 
 func (self *grpcClient) Health(ctx context.Context) (string, error) {
-	client := kv.NewKVClient(self.cnx)
+	client := kv.NewBlobIndexClient(self.cnx)
 	rep, err := client.Health(ctx, &kv.None{})
 	if err != nil {
 		return "", nil
@@ -89,7 +89,7 @@ func (self *grpcClient) Health(ctx context.Context) (string, error) {
 }
 
 func (self *grpcClient) List(ctx context.Context, base, marker string) ([]ListItem, error) {
-	client := kv.NewKVClient(self.cnx)
+	client := kv.NewBlobIndexClient(self.cnx)
 	req := kv.ListRequest{Base: base, Marker: marker, MarkerVersion: 0, Max: 1000}
 	rep, err := client.List(ctx, &req)
 	if err != nil {
@@ -104,14 +104,14 @@ func (self *grpcClient) List(ctx context.Context, base, marker string) ([]ListIt
 }
 
 func (self *grpcClient) Put(ctx context.Context, base, key string, value string) error {
-	client := kv.NewKVClient(self.cnx)
+	client := kv.NewBlobIndexClient(self.cnx)
 	req := kv.PutRequest{Base: base, Key: key, Version: uint64(time.Now().UnixNano()), Value: value}
 	_, err := client.Put(ctx, &req)
 	return err
 }
 
 func (self *grpcClient) Delete(ctx context.Context, base, key string) error {
-	client := kv.NewKVClient(self.cnx)
+	client := kv.NewBlobIndexClient(self.cnx)
 	req := kv.DeleteRequest{Base: base, Key: key, Version: uint64(time.Now().UnixNano())}
 	_, err := client.Delete(ctx, &req)
 	return err
@@ -119,7 +119,7 @@ func (self *grpcClient) Delete(ctx context.Context, base, key string) error {
 
 func (self *grpcClient) Status(ctx context.Context) (Stats, error) {
 	var st Stats
-	client := kv.NewKVClient(self.cnx)
+	client := kv.NewBlobIndexClient(self.cnx)
 	st0, err := client.Status(ctx, &kv.None{})
 	if err == nil {
 		st = Stats{

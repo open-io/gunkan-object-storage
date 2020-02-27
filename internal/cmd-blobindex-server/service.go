@@ -7,13 +7,13 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package cmd_kv_server
+package cmd_blobindex_server
 
 import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/jfsmig/object-storage/pkg/kv-proto"
+	proto "github.com/jfsmig/object-storage/pkg/blobindex-proto"
 	"github.com/tecbot/gorocksdb"
 	"log"
 	"time"
@@ -44,15 +44,15 @@ func NewService(cfg Config) (*Service, error) {
 	return &srv, nil
 }
 
-func (srv *Service) Health(context.Context, *gunkan_kv_proto.None) (*gunkan_kv_proto.HealthReply, error) {
+func (srv *Service) Health(context.Context, *proto.None) (*proto.HealthReply, error) {
 	return nil, errors.New("NYI")
 }
 
-func (srv *Service) Status(context.Context, *gunkan_kv_proto.None) (*gunkan_kv_proto.StatusReply, error) {
+func (srv *Service) Status(context.Context, *proto.None) (*proto.StatusReply, error) {
 	return nil, errors.New("NYI")
 }
 
-func (srv *Service) Put(ctx context.Context, req *gunkan_kv_proto.PutRequest) (*gunkan_kv_proto.None, error) {
+func (srv *Service) Put(ctx context.Context, req *proto.PutRequest) (*proto.None, error) {
 	var key KeyVersion
 
 	if req.Version == 0 {
@@ -71,11 +71,11 @@ func (srv *Service) Put(ctx context.Context, req *gunkan_kv_proto.PutRequest) (*
 	if err != nil {
 		return nil, err
 	} else {
-		return &gunkan_kv_proto.None{}, nil
+		return &proto.None{}, nil
 	}
 }
 
-func (srv *Service) Delete(ctx context.Context, req *gunkan_kv_proto.DeleteRequest) (*gunkan_kv_proto.None, error) {
+func (srv *Service) Delete(ctx context.Context, req *proto.DeleteRequest) (*proto.None, error) {
 	var key KeyVersion
 
 	if req.Version == 0 {
@@ -93,11 +93,11 @@ func (srv *Service) Delete(ctx context.Context, req *gunkan_kv_proto.DeleteReque
 	if err != nil {
 		return nil, err
 	} else {
-		return &gunkan_kv_proto.None{}, nil
+		return &proto.None{}, nil
 	}
 }
 
-func (srv *Service) Get(ctx context.Context, req *gunkan_kv_proto.GetRequest) (*gunkan_kv_proto.GetReply, error) {
+func (srv *Service) Get(ctx context.Context, req *proto.GetRequest) (*proto.GetReply, error) {
 	var needle KeyVersion
 
 	if req.Version == 0 {
@@ -128,14 +128,14 @@ func (srv *Service) Get(ctx context.Context, req *gunkan_kv_proto.GetRequest) (*
 		return nil, errors.New("Deleted")
 	}
 
-	rep := gunkan_kv_proto.GetReply{
+	rep := proto.GetReply{
 		Version: got.Version,
 		Value:   string(iterator.Value().Data()),
 	}
 	return &rep, nil
 }
 
-func (srv *Service) List(ctx context.Context, req *gunkan_kv_proto.ListRequest) (*gunkan_kv_proto.ListReply, error) {
+func (srv *Service) List(ctx context.Context, req *proto.ListRequest) (*proto.ListReply, error) {
 	if req.Max < 0 {
 		req.Max = 1
 	} else if req.Max > 1000 {
@@ -161,7 +161,7 @@ func (srv *Service) List(ctx context.Context, req *gunkan_kv_proto.ListRequest) 
 	iterator := srv.db.NewIterator(opts)
 	iterator.Seek(needle)
 
-	rep := gunkan_kv_proto.ListReply{}
+	rep := proto.ListReply{}
 	for ; iterator.Valid(); iterator.Next() {
 		if bytes.Compare(iterator.Key().Data(), needle) > 0 {
 			break
@@ -173,7 +173,7 @@ func (srv *Service) List(ctx context.Context, req *gunkan_kv_proto.ListRequest) 
 			break
 		}
 		sk := iterator.Key()
-		rep.Items = append(rep.Items, &gunkan_kv_proto.ObjectId{
+		rep.Items = append(rep.Items, &proto.ObjectId{
 			Version: 0,
 			Key:     string(sk.Data()),
 		})

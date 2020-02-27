@@ -1,9 +1,9 @@
-pkg/kv-proto/kv.pb.go
+pkg/blobindex-proto/blobindex.pb.go
 ./object-storage
 ./blob-client
 ./blob-server
-./kv-client
-./kv-server
+./blobindex-client
+./blobindex-server
 
 # Jetbrains IDE
 cmake-build-*/

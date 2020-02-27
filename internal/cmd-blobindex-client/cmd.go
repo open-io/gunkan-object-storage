@@ -7,12 +7,12 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package cmd_kv_client
+package cmd_blobindex_client
 
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/jfsmig/object-storage/pkg/kv-client"
+	"github.com/jfsmig/object-storage/pkg/blobindex-client"
 	"github.com/spf13/cobra"
 	"os"
 
@@ -49,7 +49,7 @@ func StatusCommand() *cobra.Command {
 		Aliases: []string{"stats", "stat"},
 		Short:   "Get usage statistics from a KV server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan_kv_client.Dial(cfg.url)
+			client, err := gunkan_blobindex_client.Dial(cfg.url)
 			if err != nil {
 				return err
 			}
@@ -75,7 +75,7 @@ func PutCommand() *cobra.Command {
 		Aliases: []string{"set"},
 		Short:   "Check a service is up",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan_kv_client.Dial(cfg.url)
+			client, err := gunkan_blobindex_client.Dial(cfg.url)
 			if err != nil {
 				return err
 			}
@@ -103,7 +103,7 @@ func ListCommand() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "Get a slice of keys from a KV server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan_kv_client.Dial(cfg.url)
+			client, err := gunkan_blobindex_client.Dial(cfg.url)
 			if err != nil {
 				return err
 			}
@@ -144,7 +144,7 @@ func HealthCommand() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "Check a service is up",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan_kv_client.Dial(cfg.url)
+			client, err := gunkan_blobindex_client.Dial(cfg.url)
 			if err != nil {
 				return err
 			}
@@ -170,7 +170,7 @@ func GetCommand() *cobra.Command {
 		Aliases: []string{"fetch", "retrieve"},
 		Short:   "Get a value from a KV server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan_kv_client.Dial(cfg.url)
+			client, err := gunkan_blobindex_client.Dial(cfg.url)
 			if err != nil {
 				return err
 			}
@@ -205,7 +205,7 @@ func DeleteCommand() *cobra.Command {
 		Aliases: []string{"delete", "remove", "erase", "rm"},
 		Short:   "Delete an entry from a KV service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan_kv_client.Dial(cfg.url)
+			client, err := gunkan_blobindex_client.Dial(cfg.url)
 			if err != nil {
 				return err
 			}

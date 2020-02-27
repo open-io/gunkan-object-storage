@@ -11,7 +11,7 @@ package main
 
 import (
 	"github.com/jfsmig/object-storage/internal/cmd-blob-client"
-	"github.com/jfsmig/object-storage/internal/cmd-kv-client"
+	"github.com/jfsmig/object-storage/internal/cmd-blobindex-client"
 	"github.com/spf13/cobra"
 
 	"errors"
@@ -31,7 +31,7 @@ func main() {
 	blobCmd.Use = "blob"
 	blobCmd.Aliases = []string{}
 
-	kvCmd := cmd_kv_client.MainCommand()
+	kvCmd := cmd_blobindex_client.MainCommand()
 	kvCmd.Use = "kv"
 	kvCmd.Aliases = []string{}
 

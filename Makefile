@@ -3,17 +3,17 @@ GO=go
 PROTOC=protoc
 
 AUTO=
-AUTO+= pkg/kv-proto/kv.pb.go
+AUTO+= pkg/blobindex-proto/blobindex.pb.go
 
 all: prepare
 	$(GO) install $(BASE)/cmd/gunkan
 	$(GO) install $(BASE)/cmd/gunkan-blob
-	$(GO) install $(BASE)/cmd/gunkan-kv-rocksdb
+	$(GO) install $(BASE)/cmd/gunkan-blobindex-rocksdb
 
 prepare: $(AUTO)
 
-pkg/kv-proto/%.pb.go: api/kv.proto
-	$(PROTOC) -I api api/kv.proto --go_out=plugins=grpc:pkg/kv-proto
+pkg/blobindex-proto/%.pb.go: api/blobindex.proto
+	$(PROTOC) -I api api/blobindex.proto --go_out=plugins=grpc:pkg/blobindex-proto
 
 clean:
 	-rm $(AUTO)

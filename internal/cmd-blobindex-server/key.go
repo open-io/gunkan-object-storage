@@ -7,7 +7,7 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package cmd_kv_server
+package cmd_blobindex_server
 
 import (
 	"errors"
