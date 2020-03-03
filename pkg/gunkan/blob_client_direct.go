@@ -7,10 +7,10 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package gunkan_blob_client
+package gunkan
 
 import (
-	"github.com/jfsmig/object-storage/pkg/blob-model"
+	"context"
 	"io/ioutil"
 
 	"bufio"
@@ -20,26 +20,30 @@ import (
 	"strings"
 )
 
-type httpClient struct {
+type httpBlobClient struct {
 	endpoint string
 	client   http.Client
 }
 
-func newHttpClient(url string) Client {
-	return &httpClient{endpoint: url, client: http.Client{}}
+func DialBlob(url string) (BlobClient, error) {
+	return newHttpBlobClient(url), nil
 }
 
-func (self *httpClient) Close() error {
+func newHttpBlobClient(url string) BlobClient {
+	return &httpBlobClient{endpoint: url, client: http.Client{}}
+}
+
+func (self *httpBlobClient) Close() error {
 	self.client.CloseIdleConnections()
 	return nil
 }
 
-func (self *httpClient) Delete(id gunkan_blob_model.Id) error {
+func (self *httpBlobClient) Delete(ctx context.Context, realid string) error {
 	b := strings.Builder{}
 	b.WriteString("http://")
 	b.WriteString(self.endpoint)
 	b.WriteString("/v1/blob/")
-	id.EncodeIn(&b)
+	b.WriteString(realid)
 
 	req, err := makeRequest("DELETE", b.String(), nil)
 	if err != nil {
@@ -55,12 +59,12 @@ func (self *httpClient) Delete(id gunkan_blob_model.Id) error {
 	return codeMapper(rep.StatusCode)
 }
 
-func (self *httpClient) Get(id gunkan_blob_model.Id) (io.ReadCloser, error) {
+func (self *httpBlobClient) Get(ctx context.Context, realid string) (io.ReadCloser, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
 	b.WriteString(self.endpoint)
 	b.WriteString("/v1/blob/")
-	id.EncodeIn(&b)
+	b.WriteString(realid)
 
 	req, err := makeRequest("GET", b.String(), nil)
 	if err != nil {
@@ -80,7 +84,7 @@ func (self *httpClient) Get(id gunkan_blob_model.Id) (io.ReadCloser, error) {
 	}
 }
 
-func (self *httpClient) PutN(id gunkan_blob_model.Id, data io.Reader, size int64) error {
+func (self *httpBlobClient) PutN(ctx context.Context, id BlobId, data io.Reader, size int64) (string, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
 	b.WriteString(self.endpoint)
@@ -89,20 +93,20 @@ func (self *httpClient) PutN(id gunkan_blob_model.Id, data io.Reader, size int64
 
 	req, err := makeRequest("PUT", b.String(), data)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	req.ContentLength = size
 	rep, err := self.client.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	defer rep.Body.Close()
-	return codeMapper(rep.StatusCode)
+	return "", codeMapper(rep.StatusCode)
 }
 
-func (self *httpClient) Put(id gunkan_blob_model.Id, data io.Reader) error {
+func (self *httpBlobClient) Put(ctx context.Context, id BlobId, data io.Reader) (string, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
 	b.WriteString(self.endpoint)
@@ -111,28 +115,28 @@ func (self *httpClient) Put(id gunkan_blob_model.Id, data io.Reader) error {
 
 	req, err := makeRequest("PUT", b.String(), data)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	req.ContentLength = -1
 	rep, err := self.client.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	defer rep.Body.Close()
-	return codeMapper(rep.StatusCode)
+	return "", codeMapper(rep.StatusCode)
 }
 
-func (self *httpClient) List(max uint) ([]gunkan_blob_model.Id, error) {
+func (self *httpBlobClient) List(ctx context.Context, max uint) ([]BlobListItem, error) {
 	return self.listRaw(max, "")
 }
 
-func (self *httpClient) ListAfter(max uint, marker gunkan_blob_model.Id) ([]gunkan_blob_model.Id, error) {
-	return self.listRaw(max, marker.Encode())
+func (self *httpBlobClient) ListAfter(ctx context.Context, max uint, marker string) ([]BlobListItem, error) {
+	return self.listRaw(max, marker)
 }
 
-func (self *httpClient) listRaw(max uint, marker string) ([]gunkan_blob_model.Id, error) {
+func (self *httpBlobClient) listRaw(max uint, marker string) ([]BlobListItem, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
 	b.WriteString(self.endpoint)
@@ -161,7 +165,7 @@ func (self *httpClient) listRaw(max uint, marker string) ([]gunkan_blob_model.Id
 	}
 }
 
-func (self *httpClient) Status() (Stats, error) {
+func (self *httpBlobClient) Status(ctx context.Context) (Stats, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
 	b.WriteString(self.endpoint)
@@ -183,7 +187,7 @@ func (self *httpClient) Status() (Stats, error) {
 	return st, err
 }
 
-func (self *httpClient) Health() (string, error) {
+func (self *httpBlobClient) Health(ctx context.Context) (string, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
 	b.WriteString(self.endpoint)
@@ -207,8 +211,8 @@ func (self *httpClient) Health() (string, error) {
 	return string(body), nil
 }
 
-func unpackBlobIdArray(body io.Reader) ([]gunkan_blob_model.Id, error) {
-	rc := make([]gunkan_blob_model.Id, 0)
+func unpackBlobIdArray(body io.Reader) ([]BlobListItem, error) {
+	rc := make([]BlobListItem, 0)
 	r := bufio.NewReader(body)
 	for {
 		if line, err := r.ReadString('\n'); err != nil {
@@ -218,38 +222,13 @@ func unpackBlobIdArray(body io.Reader) ([]gunkan_blob_model.Id, error) {
 				return nil, err
 			}
 		} else if len(line) > 0 {
-			var id gunkan_blob_model.Id
+			var id BlobId
 			line = strings.Trim(line, "\r\n")
 			if err = id.Decode(line); err != nil {
 				return nil, err
 			} else {
-				rc = append(rc, id)
+				rc = append(rc, BlobListItem{"", id})
 			}
 		}
 	}
-}
-
-func codeMapper(code int) error {
-	switch code {
-	case 404:
-		return ErrNotFound
-	case 403:
-		return ErrForbidden
-	case 409:
-		return ErrAlreadyExists
-	case 200, 201, 204:
-		return nil
-	default:
-		return ErrInternalError
-	}
-}
-
-func makeRequest(method string, path string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, path, body)
-	if err == nil {
-		req.Close = true
-		req.Header.Set("User-Agent", "gunkan-blob-go-api/1")
-		req.Header.Del("Accept-Encoding")
-	}
-	return req, err
 }

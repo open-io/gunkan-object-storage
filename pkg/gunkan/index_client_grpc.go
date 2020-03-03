@@ -7,7 +7,7 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package gunkan_blobindex_client
+package gunkan
 
 import (
 	kv "github.com/jfsmig/object-storage/pkg/blobindex-proto"
@@ -17,46 +17,7 @@ import (
 	"time"
 )
 
-type ListItem struct {
-	Key     string
-	Version uint64
-}
-
-type Client interface {
-	Status(ctx context.Context) (Stats, error)
-	Health(ctx context.Context) (string, error)
-
-	Put(ctx context.Context, base, key, value string) error
-	Get(ctx context.Context, base, key string) (string, error)
-	Delete(ctx context.Context, base, key string) error
-	List(ctx context.Context, base, marker string) ([]ListItem, error)
-}
-
-type Stats struct {
-	B_in     uint64 `json:"b_in"`
-	B_out    uint64 `json:"b_out"`
-	T_info   uint64 `json:"t_info"`
-	T_health uint64 `json:"t_health"`
-	T_status uint64 `json:"t_status"`
-	T_put    uint64 `json:"t_put"`
-	T_get    uint64 `json:"t_get"`
-	T_delete uint64 `json:"t_delete"`
-	T_list   uint64 `json:"t_list"`
-	H_info   uint64 `json:"h_info"`
-	H_health uint64 `json:"h_health"`
-	H_status uint64 `json:"h_status"`
-	H_put    uint64 `json:"h_put"`
-	H_get    uint64 `json:"h_get"`
-	H_delete uint64 `json:"h_delete"`
-	H_list   uint64 `json:"h_list"`
-	C_200    uint64 `json:"c_200"`
-	C_400    uint64 `json:"c_400"`
-	C_404    uint64 `json:"c_404"`
-	C_409    uint64 `json:"c_409"`
-	C_50X    uint64 `json:"c_50X"`
-}
-
-func Dial(url string) (Client, error) {
+func DialIndex(url string) (IndexClient, error) {
 	cnx, err := grpc.Dial(url, grpc.WithInsecure())
 	if err != nil {
 		return nil, err
@@ -88,17 +49,17 @@ func (self *grpcClient) Health(ctx context.Context) (string, error) {
 	return rep.Message, err
 }
 
-func (self *grpcClient) List(ctx context.Context, base, marker string) ([]ListItem, error) {
+func (self *grpcClient) List(ctx context.Context, base, marker string) ([]IndexListItem, error) {
 	client := kv.NewBlobIndexClient(self.cnx)
 	req := kv.ListRequest{Base: base, Marker: marker, MarkerVersion: 0, Max: 1000}
 	rep, err := client.List(ctx, &req)
 	if err != nil {
-		return []ListItem{}, err
+		return []IndexListItem{}, err
 	}
 
-	rc := make([]ListItem, 0)
+	rc := make([]IndexListItem, 0)
 	for _, i := range rep.Items {
-		rc = append(rc, ListItem{Key: i.Key, Version: i.Version})
+		rc = append(rc, IndexListItem{Key: i.Key, Version: i.Version})
 	}
 	return rc, err
 }
@@ -117,12 +78,12 @@ func (self *grpcClient) Delete(ctx context.Context, base, key string) error {
 	return err
 }
 
-func (self *grpcClient) Status(ctx context.Context) (Stats, error) {
-	var st Stats
+func (self *grpcClient) Status(ctx context.Context) (IndexStats, error) {
+	var st IndexStats
 	client := kv.NewBlobIndexClient(self.cnx)
 	st0, err := client.Status(ctx, &kv.None{})
 	if err == nil {
-		st = Stats{
+		st = IndexStats{
 			B_in:     st0.BIn,
 			B_out:    st0.BOut,
 			T_info:   st0.TInfo,

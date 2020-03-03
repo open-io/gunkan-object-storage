@@ -7,7 +7,8 @@ AUTO+= pkg/blobindex-proto/blobindex.pb.go
 
 all: prepare
 	$(GO) install $(BASE)/cmd/gunkan
-	$(GO) install $(BASE)/cmd/gunkan-blob
+	$(GO) install $(BASE)/cmd/gunkan-data
+	$(GO) install $(BASE)/cmd/gunkan-blobstore
 	$(GO) install $(BASE)/cmd/gunkan-blobindex-rocksdb
 
 prepare: $(AUTO)

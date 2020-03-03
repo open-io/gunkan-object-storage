@@ -11,7 +11,7 @@ package cmd_blob_server
 
 import (
 	"errors"
-	"github.com/jfsmig/object-storage/pkg/blob-model"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
@@ -104,7 +104,7 @@ func (r *fsPreRepo) Delete(relpath string) error {
 	return unix.Unlinkat(r.fdBase, relpath, 0)
 }
 
-func (r *fsPreRepo) Create(obj gunkan_blob_model.Id) (BlobBuilder, error) {
+func (r *fsPreRepo) Create(obj gunkan.BlobId) (BlobBuilder, error) {
 	encoded := obj.Encode()
 	pathFinal, err := r.relpath(encoded)
 	if err != nil {

@@ -7,4 +7,17 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package gunkan_blobindex_client
+package main
+
+import (
+	"github.com/jfsmig/object-storage/internal/cmd-blob-server"
+	"log"
+)
+
+func main() {
+	rootCmd := cmd_blob_server.MainCommand()
+	rootCmd.Use = "gunkan-blobstore"
+	if err := rootCmd.Execute(); err != nil {
+		log.Fatalln("Command error:", err)
+	}
+}

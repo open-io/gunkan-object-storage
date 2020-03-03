@@ -10,12 +10,8 @@
 package cmd_blob_server
 
 import (
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"golang.org/x/sys/unix"
-)
-
-const (
-	versionMajor = "0"
-	versionMinor = "1"
 )
 
 const (
@@ -28,7 +24,10 @@ const (
 )
 
 const (
-	versionString = versionMajor + "." + versionMinor
-	prefixBlob    = "/v1/blob/"
-	infoString    = "gunkan/blob-" + versionString
+	routeInfo   = "/v1/info"
+	routeHealth = "/v1/health"
+	routeStatus = "/v1/status"
+	routeList   = "/v1/list"
+	prefixBlob  = "/v1/blob/"
+	infoString  = "gunkan/blob-store-" + gunkan.VersionString
 )

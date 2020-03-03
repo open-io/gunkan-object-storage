@@ -7,7 +7,7 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package cmd_blob_server
+package cmd_part_server
 
 import (
 	"errors"
@@ -23,11 +23,11 @@ func MainCommand() *cobra.Command {
 	var cfg config
 
 	server := &cobra.Command{
-		Use:     "srv",
-		Aliases: []string{"server", "service", "worker", "agent"},
-		Short:   "Start a BLOB server",
+		Use:     "proxy",
+		Aliases: []string{},
+		Short:   "Start a BLOB proxy",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			srv := service{repo: nil, config: cfg}
+			srv := service{config: cfg}
 
 			if len(args) != 2 {
 				return errors.New("Missing positional args: ADDR DIRECTORY")
@@ -44,22 +44,12 @@ func MainCommand() *cobra.Command {
 				return errors.New("Missing base directory")
 			}
 
-			var err error
-			if flagSMR {
-				srv.repo, err = MakePostNamed(baseDir)
-			} else {
-				srv.repo, err = MakePreNamed(baseDir)
-			}
-			if err != nil {
-				return errors.New(fmt.Sprintf("Repository error [%s]", baseDir, err.Error()))
-			}
-
 			http.HandleFunc(prefixBlob, wrap(&srv, handleBlob()))
 			http.HandleFunc(routeList, wrap(&srv, get(handleList())))
 			http.HandleFunc(routeInfo, wrap(&srv, get(handleInfo())))
 			http.HandleFunc(routeStatus, wrap(&srv, get(handleStatus())))
 			http.HandleFunc(routeHealth, wrap(&srv, get(handleHealth())))
-			err = http.ListenAndServe(addrBind, nil)
+			err := http.ListenAndServe(addrBind, nil)
 			if err != nil {
 				return errors.New(fmt.Sprintf("HTTP error [%s]", addrBind, err.Error()))
 			}

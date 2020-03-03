@@ -10,7 +10,8 @@
 package cmd_blob_client
 
 import (
-	"github.com/jfsmig/object-storage/pkg/blob-client"
+	"context"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"github.com/spf13/cobra"
 
 	"encoding/json"
@@ -25,12 +26,12 @@ func StatusCommand() *cobra.Command {
 		Aliases: []string{"stats", "stat"},
 		Short:   "Get the usage statistics of a BLOB service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan_blob_client.Dial(cfg.url)
+			client, err := gunkan.DialBlob(cfg.url)
 			if err != nil {
 				return err
 			}
 
-			st, err := client.Status()
+			st, err := client.Status(context.Background())
 			if err != nil {
 				return err
 			} else {

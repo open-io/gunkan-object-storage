@@ -10,13 +10,12 @@
 package cmd_blob_client
 
 import (
-	"github.com/jfsmig/object-storage/pkg/blob-client"
-	"github.com/jfsmig/object-storage/pkg/blob-model"
-	"github.com/spf13/cobra"
-
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
+	"github.com/spf13/cobra"
 )
 
 func ListCommand() *cobra.Command {
@@ -27,34 +26,31 @@ func ListCommand() *cobra.Command {
 		Aliases: []string{"list"},
 		Short:   "List items stored on a BLOB service",
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			var id gunkan_blob_model.Id
+			var realid string
 
 			if flag.NArg() > 1 {
 				if flag.NArg() > 2 {
 					return errors.New("Too many BLOB id")
 				}
-				err = id.Decode(flag.Arg(1))
-				if err != nil {
-					return err
-				}
+				realid = flag.Arg(1)
 			}
 
-			client, err := gunkan_blob_client.Dial(cfg.url)
+			client, err := gunkan.DialBlob(cfg.url)
 			if err != nil {
 				return err
 			}
 
-			var items []gunkan_blob_model.Id
-			if len(id.Content) <= 0 {
-				items, err = client.List(1000)
+			var items []gunkan.BlobListItem
+			if len(realid) <= 0 {
+				items, err = client.List(context.Background(), 1000)
 			} else {
-				items, err = client.ListAfter(1000, id)
+				items, err = client.ListAfter(context.Background(), 1000, realid)
 			}
 			if err != nil {
 				return err
 			}
 			for _, item := range items {
-				fmt.Println(item.Encode())
+				fmt.Println(item)
 			}
 			return nil
 		},

@@ -10,8 +10,9 @@
 package cmd_blob_client
 
 import (
+	"context"
 	"fmt"
-	"github.com/jfsmig/object-storage/pkg/blob-client"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"github.com/spf13/cobra"
 )
 
@@ -23,11 +24,11 @@ func HealthCommand() *cobra.Command {
 		Aliases: []string{"health"},
 		Short:   "Check the health of a BLOB service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan_blob_client.Dial(cfg.url)
+			client, err := gunkan.DialBlob(cfg.url)
 			if err != nil {
 				return err
 			}
-			state, err := client.Health()
+			state, err := client.Health(context.Background())
 			if err != nil {
 				return err
 			}

@@ -10,9 +10,9 @@
 package cmd_blob_client
 
 import (
+	"context"
 	"errors"
-	"github.com/jfsmig/object-storage/pkg/blob-client"
-	"github.com/jfsmig/object-storage/pkg/blob-model"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +27,7 @@ func DelCommand() *cobra.Command {
 			if len(args) < 1 {
 				return errors.New(("Missing Blob ID"))
 			}
-			client, err := gunkan_blob_client.Dial(cfg.url)
+			client, err := gunkan.DialBlob(cfg.url)
 			if err != nil {
 				return err
 			}
@@ -42,7 +42,7 @@ func DelCommand() *cobra.Command {
 			for _, id := range args {
 				err = delOne(client, id)
 				debug(id, err)
-				if err != gunkan_blob_client.ErrNotFound {
+				if err != gunkan.ErrNotFound {
 					strongError = true
 				}
 			}
@@ -60,13 +60,13 @@ func DelCommand() *cobra.Command {
 	return client
 }
 
-func delOne(client gunkan_blob_client.Client, strid string) error {
+func delOne(client gunkan.BlobClient, strid string) error {
 	var err error
-	var id gunkan_blob_model.Id
+	var id gunkan.BlobId
 
 	if err = id.Decode(strid); err != nil {
 		return err
 	} else {
-		return client.Delete(id)
+		return client.Delete(context.Background(), strid)
 	}
 }

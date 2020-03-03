@@ -10,11 +10,10 @@
 package cmd_blob_client
 
 import (
-	"github.com/jfsmig/object-storage/pkg/blob-client"
-	"github.com/jfsmig/object-storage/pkg/blob-model"
-	"github.com/spf13/cobra"
-
+	"context"
 	"errors"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
+	"github.com/spf13/cobra"
 	"io"
 	"os"
 )
@@ -30,7 +29,7 @@ func GetCommand() *cobra.Command {
 			if len(args) != 1 {
 				return errors.New("Missing Blob ID")
 			}
-			client, err := gunkan_blob_client.Dial(cfg.url)
+			client, err := gunkan.DialBlob(cfg.url)
 			if err != nil {
 				return err
 			}
@@ -44,14 +43,14 @@ func GetCommand() *cobra.Command {
 	return cmd
 }
 
-func getOne(client gunkan_blob_client.Client, strid string) error {
+func getOne(client gunkan.BlobClient, strid string) error {
 	var err error
-	var id gunkan_blob_model.Id
+	var id gunkan.BlobId
 
 	if err = id.Decode(strid); err != nil {
 		return err
 	} else {
-		r, err := client.Get(id)
+		r, err := client.Get(context.Background(), strid)
 		if err != nil {
 			return err
 		} else {

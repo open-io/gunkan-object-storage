@@ -11,7 +11,7 @@ package cmd_blob_server
 
 import (
 	"fmt"
-	"github.com/jfsmig/object-storage/pkg/blob-model"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"golang.org/x/sys/unix"
 	"io"
 	"net/http"
@@ -127,7 +127,7 @@ func handleBlobGet(ctx *handlerContext, blobid string) {
 }
 
 func handleBlobPut(ctx *handlerContext, encoded string) {
-	objid := gunkan_blob_model.Id{}
+	objid := gunkan.BlobId{}
 	if err := objid.Decode(string(encoded)); err != nil {
 		ctx.replyCodeError(http.StatusBadRequest, err)
 		return

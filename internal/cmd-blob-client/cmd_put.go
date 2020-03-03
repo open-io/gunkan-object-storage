@@ -10,12 +10,12 @@
 package cmd_blob_client
 
 import (
-	"github.com/jfsmig/object-storage/pkg/blob-client"
-	"github.com/jfsmig/object-storage/pkg/blob-model"
-	"github.com/spf13/cobra"
-	"os"
-
+	"context"
 	"errors"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
+	"github.com/spf13/cobra"
+	"log"
+	"os"
 )
 
 func PutCommand() *cobra.Command {
@@ -27,7 +27,7 @@ func PutCommand() *cobra.Command {
 		Short:   "Put data in a BLOB service",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
-			var id gunkan_blob_model.Id
+			var id gunkan.BlobId
 
 			if len(args) < 1 {
 				return errors.New("Missing Blob ID")
@@ -36,11 +36,12 @@ func PutCommand() *cobra.Command {
 				return err
 			}
 
-			client, err := gunkan_blob_client.Dial(cfg.url)
+			client, err := gunkan.DialBlob(cfg.url)
 			if err != nil {
 				return err
 			}
 
+			var realid string
 			if len(args) == 2 {
 				path := args[1]
 				if fin, err := os.Open(path); err == nil {
@@ -48,13 +49,16 @@ func PutCommand() *cobra.Command {
 					var finfo os.FileInfo
 					finfo, err = fin.Stat()
 					if err == nil {
-						err = client.PutN(id, fin, finfo.Size())
+						realid, err = client.PutN(context.Background(), id, fin, finfo.Size())
 					}
 				}
 			} else {
-				err = client.Put(id, os.Stdin)
+				realid, err = client.Put(context.Background(), id, os.Stdin)
 			}
 
+			if err != nil {
+				log.Printf("OK %s %s", id.Encode(), realid)
+			}
 			return err
 		},
 	}

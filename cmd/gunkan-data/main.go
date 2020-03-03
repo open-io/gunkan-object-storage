@@ -10,13 +10,14 @@
 package main
 
 import (
-	"github.com/jfsmig/object-storage/internal/cmd-blob-server"
+	"github.com/jfsmig/object-storage/internal/cmd-part-server"
+
 	"log"
 )
 
 func main() {
-	rootCmd := cmd_blob_server.MainCommand()
-	rootCmd.Use = "gunkan-blob"
+	rootCmd := cmd_part_server.MainCommand()
+	rootCmd.Use = "gunkan-data"
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalln("Command error:", err)
 	}

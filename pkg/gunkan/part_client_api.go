@@ -7,24 +7,34 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package gunkan_blob_client
+package gunkan
 
 import (
-	"errors"
+	"context"
 	"io"
-
-	blob "github.com/jfsmig/object-storage/pkg/blob-model"
 )
 
-var (
-	ErrNotFound      = errors.New("404/Not-Found")
-	ErrForbidden     = errors.New("403/Forbidden")
-	ErrAlreadyExists = errors.New("409/Conflict")
-	ErrStorageError  = errors.New("502/Backend-Error")
-	ErrInternalError = errors.New("500/Internal Error")
-)
+type PartClient interface {
+	Close() error
 
-type Stats struct {
+	Status(ctx context.Context) (PartStats, error)
+	Health(ctx context.Context) (string, error)
+
+	Put(ctx context.Context, id PartId, data io.Reader) error
+	PutN(ctx context.Context, id PartId, data io.Reader, size int64) error
+
+	Get(ctx context.Context, id PartId) (io.ReadCloser, error)
+
+	Delete(ctx context.Context, id PartId) error
+
+	// Returns the first page of known parts in the current pod
+	List(ctx context.Context, max uint) ([]PartId, error)
+
+	// Returns the next page of known parts in the current pod
+	ListAfter(ctx context.Context, max uint, id PartId) ([]PartId, error)
+}
+
+type PartStats struct {
 	B_in     uint64 `json:"b_in"`
 	B_out    uint64 `json:"b_out"`
 	T_info   uint64 `json:"t_info"`
@@ -58,22 +68,4 @@ type Stats struct {
 	C_502    uint64 `json:"c_502"`
 	C_503    uint64 `json:"c_503"`
 	C_50X    uint64 `json:"c_50X"`
-}
-
-type Client interface {
-	Close() error
-
-	Status() (Stats, error)
-	Health() (string, error)
-
-	Put(id blob.Id, data io.Reader) error
-	PutN(id blob.Id, data io.Reader, size int64) error
-	Get(id blob.Id) (io.ReadCloser, error)
-	Delete(id blob.Id) error
-	List(max uint) ([]blob.Id, error)
-	ListAfter(max uint, marker blob.Id) ([]blob.Id, error)
-}
-
-func Dial(url string) (Client, error) {
-	return newHttpClient(url), nil
 }

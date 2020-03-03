@@ -7,26 +7,17 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package cmd_blob_server
+package cmd_part_server
 
 import (
 	"github.com/jfsmig/object-storage/pkg/gunkan"
-	"os"
 )
 
-type Repo interface {
-	Create(objid gunkan.BlobId) (BlobBuilder, error)
-	Open(blobid string) (BlobReader, error)
-	Delete(blobid string) error
-}
-
-type BlobReader interface {
-	Stream() *os.File
-	Close()
-}
-
-type BlobBuilder interface {
-	Stream() *os.File
-	Commit() (string, error)
-	Abort() error
-}
+const (
+	routeInfo   = "/v1/info"
+	routeHealth = "/v1/health"
+	routeStatus = "/v1/status"
+	routeList   = "/v1/list"
+	prefixBlob  = "/v1/part/"
+	infoString  = "gunkan/blob-part-" + gunkan.VersionString
+)

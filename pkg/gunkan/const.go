@@ -7,4 +7,16 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package gunkan_blob_client
+package gunkan
+
+const (
+	VersionMajor  = "0"
+	VersionMinor  = "1"
+	VersionString = VersionMajor + "." + VersionMinor
+)
+
+const (
+	ConsulSrvData  = "gkdata"
+	ConsulSrvIndex = "gkindex"
+	ConsulSrvBlob  = "gkblob"
+)
