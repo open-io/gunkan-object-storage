@@ -3,18 +3,19 @@ GO=go
 PROTOC=protoc
 
 AUTO=
-AUTO+= pkg/blobindex-proto/blobindex.pb.go
+AUTO+= pkg/gunkan-index-proto/index.pb.go
 
 all: prepare
 	$(GO) install $(BASE)/cmd/gunkan
-	$(GO) install $(BASE)/cmd/gunkan-data
-	$(GO) install $(BASE)/cmd/gunkan-blobstore
-	$(GO) install $(BASE)/cmd/gunkan-blobindex-rocksdb
+	$(GO) install $(BASE)/cmd/gunkan-data-gate
+	$(GO) install $(BASE)/cmd/gunkan-blob-store-fs
+	$(GO) install $(BASE)/cmd/gunkan-index-gate
+	$(GO) install $(BASE)/cmd/gunkan-index-store-rocksdb
 
 prepare: $(AUTO)
 
-pkg/blobindex-proto/%.pb.go: api/blobindex.proto
-	$(PROTOC) -I api api/blobindex.proto --go_out=plugins=grpc:pkg/blobindex-proto
+pkg/gunkan-index-proto/%.pb.go: api/index.proto
+	$(PROTOC) -I api api/index.proto --go_out=plugins=grpc:pkg/gunkan-index-proto
 
 clean:
 	-rm $(AUTO)

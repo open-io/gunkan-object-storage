@@ -56,7 +56,7 @@ func (self *httpBlobClient) Delete(ctx context.Context, realid string) error {
 	}
 
 	defer rep.Body.Close()
-	return codeMapper(rep.StatusCode)
+	return MapCodeToError(rep.StatusCode)
 }
 
 func (self *httpBlobClient) Get(ctx context.Context, realid string) (io.ReadCloser, error) {
@@ -80,7 +80,7 @@ func (self *httpBlobClient) Get(ctx context.Context, realid string) (io.ReadClos
 	case 200, 201, 204:
 		return rep.Body, nil
 	default:
-		return nil, codeMapper(rep.StatusCode)
+		return nil, MapCodeToError(rep.StatusCode)
 	}
 }
 
@@ -103,7 +103,7 @@ func (self *httpBlobClient) PutN(ctx context.Context, id BlobId, data io.Reader,
 	}
 
 	defer rep.Body.Close()
-	return "", codeMapper(rep.StatusCode)
+	return "", MapCodeToError(rep.StatusCode)
 }
 
 func (self *httpBlobClient) Put(ctx context.Context, id BlobId, data io.Reader) (string, error) {
@@ -125,7 +125,7 @@ func (self *httpBlobClient) Put(ctx context.Context, id BlobId, data io.Reader) 
 	}
 
 	defer rep.Body.Close()
-	return "", codeMapper(rep.StatusCode)
+	return "", MapCodeToError(rep.StatusCode)
 }
 
 func (self *httpBlobClient) List(ctx context.Context, max uint) ([]BlobListItem, error) {
@@ -161,7 +161,7 @@ func (self *httpBlobClient) listRaw(max uint, marker string) ([]BlobListItem, er
 	case 200, 201, 204:
 		return unpackBlobIdArray(rep.Body)
 	default:
-		return nil, codeMapper(rep.StatusCode)
+		return nil, MapCodeToError(rep.StatusCode)
 	}
 }
 

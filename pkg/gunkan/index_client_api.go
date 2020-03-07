@@ -24,7 +24,7 @@ type IndexClient interface {
 
 	Delete(ctx context.Context, base, key string) error
 
-	List(ctx context.Context, base, marker string) ([]IndexListItem, error)
+	List(ctx context.Context, base, marker string, max uint32) ([]IndexListItem, error)
 }
 
 type IndexListItem struct {

@@ -28,10 +28,10 @@ type PartClient interface {
 	Delete(ctx context.Context, id PartId) error
 
 	// Returns the first page of known parts in the current pod
-	List(ctx context.Context, max uint) ([]PartId, error)
+	List(ctx context.Context, max uint32) ([]PartId, error)
 
 	// Returns the next page of known parts in the current pod
-	ListAfter(ctx context.Context, max uint, id PartId) ([]PartId, error)
+	ListAfter(ctx context.Context, max uint32, id PartId) ([]PartId, error)
 }
 
 type PartStats struct {

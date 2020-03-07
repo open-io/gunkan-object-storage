@@ -10,15 +10,17 @@
 package gunkan
 
 import (
-	kv "github.com/jfsmig/object-storage/pkg/blobindex-proto"
+	"github.com/jfsmig/object-storage/internal/helpers-grpc"
+	kv "github.com/jfsmig/object-storage/pkg/gunkan-index-proto"
 	"google.golang.org/grpc"
 
 	"context"
+	"errors"
 	"time"
 )
 
-func DialIndex(url string) (IndexClient, error) {
-	cnx, err := grpc.Dial(url, grpc.WithInsecure())
+func DialIndex(url, dirConfig string) (IndexClient, error) {
+	cnx, err := helpers_grpc.DialTLS(url, dirConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +32,7 @@ type grpcClient struct {
 }
 
 func (self *grpcClient) Get(ctx context.Context, base, key string) (string, error) {
-	client := kv.NewBlobIndexClient(self.cnx)
+	client := kv.NewIndexClient(self.cnx)
 	req := kv.GetRequest{Base: base, Key: key, Version: 0}
 	rep, err := client.Get(ctx, &req)
 	if err != nil {
@@ -40,18 +42,9 @@ func (self *grpcClient) Get(ctx context.Context, base, key string) (string, erro
 	return rep.Value, nil
 }
 
-func (self *grpcClient) Health(ctx context.Context) (string, error) {
-	client := kv.NewBlobIndexClient(self.cnx)
-	rep, err := client.Health(ctx, &kv.None{})
-	if err != nil {
-		return "", nil
-	}
-	return rep.Message, err
-}
-
-func (self *grpcClient) List(ctx context.Context, base, marker string) ([]IndexListItem, error) {
-	client := kv.NewBlobIndexClient(self.cnx)
-	req := kv.ListRequest{Base: base, Marker: marker, MarkerVersion: 0, Max: 1000}
+func (self *grpcClient) List(ctx context.Context, base, marker string, max uint32) ([]IndexListItem, error) {
+	client := kv.NewIndexClient(self.cnx)
+	req := kv.ListRequest{Base: base, Marker: marker, MarkerVersion: 0, Max: max}
 	rep, err := client.List(ctx, &req)
 	if err != nil {
 		return []IndexListItem{}, err
@@ -65,47 +58,25 @@ func (self *grpcClient) List(ctx context.Context, base, marker string) ([]IndexL
 }
 
 func (self *grpcClient) Put(ctx context.Context, base, key string, value string) error {
-	client := kv.NewBlobIndexClient(self.cnx)
+	client := kv.NewIndexClient(self.cnx)
 	req := kv.PutRequest{Base: base, Key: key, Version: uint64(time.Now().UnixNano()), Value: value}
 	_, err := client.Put(ctx, &req)
 	return err
 }
 
 func (self *grpcClient) Delete(ctx context.Context, base, key string) error {
-	client := kv.NewBlobIndexClient(self.cnx)
+	client := kv.NewIndexClient(self.cnx)
 	req := kv.DeleteRequest{Base: base, Key: key, Version: uint64(time.Now().UnixNano())}
 	_, err := client.Delete(ctx, &req)
 	return err
 }
 
 func (self *grpcClient) Status(ctx context.Context) (IndexStats, error) {
-	var st IndexStats
-	client := kv.NewBlobIndexClient(self.cnx)
-	st0, err := client.Status(ctx, &kv.None{})
-	if err == nil {
-		st = IndexStats{
-			B_in:     st0.BIn,
-			B_out:    st0.BOut,
-			T_info:   st0.TInfo,
-			T_status: st0.TStatus,
-			T_health: st0.THealth,
-			T_put:    st0.TPut,
-			T_get:    st0.TGet,
-			T_delete: st0.TDelete,
-			T_list:   st0.TList,
-			H_info:   st0.HInfo,
-			H_status: st0.HStatus,
-			H_health: st0.HHealth,
-			H_put:    st0.HPut,
-			H_get:    st0.HGet,
-			H_delete: st0.HDelete,
-			H_list:   st0.HList,
-			C_200:    st0.C_200,
-			C_400:    st0.C_400,
-			C_404:    st0.C_404,
-			C_409:    st0.C_409,
-			C_50X:    st0.C_50X,
-		}
-	}
-	return st, err
+	// FIXME(jfs): Query using HTTP
+	return IndexStats{}, errors.New("NYI")
+}
+
+func (self *grpcClient) Health(ctx context.Context) (string, error) {
+	// FIXME(jfs): Query using HTTP
+	return "", errors.New("NYI")
 }

@@ -56,7 +56,7 @@ func (self *httpPartClient) Delete(ctx context.Context, id PartId) error {
 	}
 
 	defer rep.Body.Close()
-	return codeMapper(rep.StatusCode)
+	return MapCodeToError(rep.StatusCode)
 }
 
 func (self *httpPartClient) Get(ctx context.Context, id PartId) (io.ReadCloser, error) {
@@ -80,7 +80,7 @@ func (self *httpPartClient) Get(ctx context.Context, id PartId) (io.ReadCloser, 
 	case 200, 201, 204:
 		return rep.Body, nil
 	default:
-		return nil, codeMapper(rep.StatusCode)
+		return nil, MapCodeToError(rep.StatusCode)
 	}
 }
 
@@ -103,7 +103,7 @@ func (self *httpPartClient) PutN(ctx context.Context, id PartId, data io.Reader,
 	}
 
 	defer rep.Body.Close()
-	return codeMapper(rep.StatusCode)
+	return MapCodeToError(rep.StatusCode)
 }
 
 func (self *httpPartClient) Put(ctx context.Context, id PartId, data io.Reader) error {
@@ -125,14 +125,14 @@ func (self *httpPartClient) Put(ctx context.Context, id PartId, data io.Reader) 
 	}
 
 	defer rep.Body.Close()
-	return codeMapper(rep.StatusCode)
+	return MapCodeToError(rep.StatusCode)
 }
 
-func (self *httpPartClient) List(ctx context.Context, max uint) ([]PartId, error) {
+func (self *httpPartClient) List(ctx context.Context, max uint32) ([]PartId, error) {
 	return self.listRaw(max, "")
 }
 
-func (self *httpPartClient) ListAfter(ctx context.Context, max uint, id PartId) ([]PartId, error) {
+func (self *httpPartClient) ListAfter(ctx context.Context, max uint32, id PartId) ([]PartId, error) {
 	return self.listRaw(max, id.EncodeMarker())
 }
 
@@ -182,7 +182,7 @@ func (self *httpPartClient) Health(ctx context.Context) (string, error) {
 	return string(body), nil
 }
 
-func (self *httpPartClient) listRaw(max uint, marker string) ([]PartId, error) {
+func (self *httpPartClient) listRaw(max uint32, marker string) ([]PartId, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
 	b.WriteString(self.endpoint)
@@ -207,7 +207,7 @@ func (self *httpPartClient) listRaw(max uint, marker string) ([]PartId, error) {
 	case 200, 201, 204:
 		return unpackPartIdArray(rep.Body)
 	default:
-		return nil, codeMapper(rep.StatusCode)
+		return nil, MapCodeToError(rep.StatusCode)
 	}
 }
 

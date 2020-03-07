@@ -23,7 +23,7 @@ var (
 	ErrInternalError = errors.New("500/Internal Error")
 )
 
-func codeMapper(code int) error {
+func MapCodeToError(code int) error {
 	switch code {
 	case 404:
 		return ErrNotFound
