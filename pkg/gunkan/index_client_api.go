@@ -18,18 +18,13 @@ type IndexClient interface {
 
 	Health(ctx context.Context) (string, error)
 
-	Put(ctx context.Context, base, key, value string) error
+	Put(ctx context.Context, key BaseKeyVersion, value string) error
 
-	Get(ctx context.Context, base, key string) (string, error)
+	Get(ctx context.Context, key BaseKeyVersion) (string, error)
 
-	Delete(ctx context.Context, base, key string) error
+	Delete(ctx context.Context, key BaseKeyVersion) error
 
-	List(ctx context.Context, base, marker string, max uint32) ([]IndexListItem, error)
-}
-
-type IndexListItem struct {
-	Key     string
-	Version uint64
+	List(ctx context.Context, marker BaseKeyVersion, max uint32) ([]KeyVersion, error)
 }
 
 type IndexStats struct {

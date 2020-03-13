@@ -15,6 +15,7 @@ import (
 	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"log"
 	"os"
 
 	"errors"
@@ -48,6 +49,20 @@ func (cfg *config) prepare(fs *pflag.FlagSet) {
 	fs.StringVar(&cfg.dirConfig, "f", "", "IP:PORT endpoint of the service to contact")
 }
 
+func (cfg *config) getUrl() (string, error) {
+	if cfg.url != "" {
+		log.Println("Explicit Index service endpoint")
+		return cfg.url, nil
+	} else {
+		log.Println("Polling an Index gate service endpoint")
+		if discovery, err := gunkan.NewDiscovery(); err != nil {
+			return "", err
+		} else {
+			return discovery.PollIndexGate()
+		}
+	}
+}
+
 func StatusCommand() *cobra.Command {
 	var cfg config
 
@@ -56,7 +71,11 @@ func StatusCommand() *cobra.Command {
 		Aliases: []string{"stats", "stat"},
 		Short:   "Get usage statistics from a KV server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan.DialIndex(cfg.url, cfg.dirConfig)
+			url, err := cfg.getUrl()
+			if err != nil {
+				return err
+			}
+			client, err := gunkan.DialIndex(url, cfg.dirConfig)
 			if err != nil {
 				return err
 			}
@@ -81,18 +100,20 @@ func PutCommand() *cobra.Command {
 		Aliases: []string{"set"},
 		Short:   "Check a service is up",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan.DialIndex(cfg.url, cfg.dirConfig)
+			url, err := cfg.getUrl()
+			if err != nil {
+				return err
+			}
+			client, err := gunkan.DialIndex(url, cfg.dirConfig)
 			if err != nil {
 				return err
 			}
 			if len(args) != 3 {
 				return errors.New("Missing BASE, KEY or VALUE")
 			}
-			base := args[0]
-			key := args[1]
+			key := gunkan.BaseKeyLatest(args[0], args[1])
 			value := args[2]
-
-			return client.Put(cmd.Context(), base, key, value)
+			return client.Put(cmd.Context(), key, value)
 		},
 	}
 
@@ -108,7 +129,11 @@ func ListCommand() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "Get a slice of keys from a KV server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan.DialIndex(cfg.url, cfg.dirConfig)
+			url, err := cfg.getUrl()
+			if err != nil {
+				return err
+			}
+			client, err := gunkan.DialIndex(url, cfg.dirConfig)
 			if err != nil {
 				return err
 			}
@@ -119,13 +144,15 @@ func ListCommand() *cobra.Command {
 			if len(args) > 3 {
 				return errors.New("Too many MARKER")
 			}
+
 			var base, marker string
 			base = args[0]
 			if len(args) == 2 {
 				marker = args[1]
 			}
+			key := gunkan.BaseKeyLatest(base, marker)
 
-			items, err := client.List(cmd.Context(), base, marker, 1000)
+			items, err := client.List(cmd.Context(), key, 1000)
 			if err != nil {
 				return err
 			}
@@ -148,7 +175,11 @@ func HealthCommand() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "Check a service is up",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan.DialIndex(cfg.url, cfg.dirConfig)
+			url, err := cfg.getUrl()
+			if err != nil {
+				return err
+			}
+			client, err := gunkan.DialIndex(url, cfg.dirConfig)
 			if err != nil {
 				return err
 			}
@@ -174,7 +205,11 @@ func GetCommand() *cobra.Command {
 		Aliases: []string{"fetch", "retrieve"},
 		Short:   "Get a value from a KV server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan.DialIndex(cfg.url, cfg.dirConfig)
+			url, err := cfg.getUrl()
+			if err != nil {
+				return err
+			}
+			client, err := gunkan.DialIndex(url, cfg.dirConfig)
 			if err != nil {
 				return err
 			}
@@ -186,7 +221,7 @@ func GetCommand() *cobra.Command {
 			base := args[0]
 
 			for _, key := range args[1:] {
-				value, err := client.Get(cmd.Context(), base, key)
+				value, err := client.Get(cmd.Context(), gunkan.BaseKeyLatest(base, key))
 				if err != nil {
 					return err
 				}
@@ -208,17 +243,19 @@ func DeleteCommand() *cobra.Command {
 		Aliases: []string{"delete", "remove", "erase", "rm"},
 		Short:   "Delete an entry from a KV service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := gunkan.DialIndex(cfg.url, cfg.dirConfig)
+			url, err := cfg.getUrl()
+			if err != nil {
+				return err
+			}
+			client, err := gunkan.DialIndex(url, cfg.dirConfig)
 			if err != nil {
 				return err
 			}
 			if len(args) != 2 {
 				return errors.New("Missing BASE and/or KEY")
 			}
-			base := args[0]
-			key := args[1]
 
-			return client.Delete(cmd.Context(), base, key)
+			return client.Delete(cmd.Context(), gunkan.BaseKeyLatest(args[0], args[1]))
 		},
 	}
 

@@ -18,8 +18,6 @@ import (
 
 func MainCommand() *cobra.Command {
 	var flagSMR bool
-	var addrBind string
-	var baseDir string
 	var cfg config
 
 	server := &cobra.Command{
@@ -27,48 +25,56 @@ func MainCommand() *cobra.Command {
 		Aliases: []string{"server", "service", "worker", "agent"},
 		Short:   "Start a BLOB server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			srv := service{repo: nil, config: cfg}
-
 			if len(args) != 2 {
 				return errors.New("Missing positional args: ADDR DIRECTORY")
+			} else {
+				cfg.addrBind = args[0]
+				cfg.dirBase = args[1]
 			}
-			addrBind = args[0]
-			baseDir = args[1]
-			if cfg.addrAnnounce == "" {
-				cfg.addrAnnounce = addrBind
-			}
-			if addrBind == "" {
+
+			// FIXME(jfsmig): Fix the sanitizing of the input
+			if cfg.addrBind == "" {
 				return errors.New("Missing bind address")
 			}
-			if baseDir == "" {
+			if cfg.dirBase == "" {
 				return errors.New("Missing base directory")
+			}
+			if cfg.addrAnnounce == "" {
+				cfg.addrAnnounce = cfg.addrBind
 			}
 
 			var err error
+			var repo Repo
 			if flagSMR {
-				srv.repo, err = MakePostNamed(baseDir)
+				repo, err = MakePostNamed(cfg.dirBase)
 			} else {
-				srv.repo, err = MakePreNamed(baseDir)
+				repo, err = MakePreNamed(cfg.dirBase)
 			}
 			if err != nil {
-				return errors.New(fmt.Sprintf("Repository error [%s]", baseDir, err.Error()))
+				return errors.New(fmt.Sprintf("Repository error [%s]", cfg.dirBase, err.Error()))
 			}
 
+			srv := service{repo: repo, config: cfg}
 			http.HandleFunc(routeInfo, wrap(&srv, get(handleInfo())))
 			http.HandleFunc(routeStatus, wrap(&srv, get(handleStatus())))
 			http.HandleFunc(routeHealth, wrap(&srv, get(handleHealth())))
 			http.HandleFunc(prefixBlob, wrap(&srv, handleBlob()))
 			http.HandleFunc(routeList, wrap(&srv, get(handleList())))
-			err = http.ListenAndServe(addrBind, nil)
+			err = http.ListenAndServe(cfg.addrBind, nil)
 			if err != nil {
-				return errors.New(fmt.Sprintf("HTTP error [%s]", addrBind, err.Error()))
+				return errors.New(fmt.Sprintf("HTTP error [%s]", cfg.addrBind, err.Error()))
 			}
 			return nil
 		},
 	}
 
-	server.Flags().BoolVar(&flagSMR, "smr", false, "Use SMR ready naming")
-	server.Flags().StringVar(&cfg.addrAnnounce, "me", "", "Specify a different address than the bind address")
-
+	const (
+		publicUsage = "Public address of the service"
+		tlsUsage    = "Path to a directory with the TLS configuration"
+		smrUsage    = "Use a SMR ready naming policy of objects"
+	)
+	server.Flags().StringVar(&cfg.dirConfig, "tls", "", tlsUsage)
+	server.Flags().StringVar(&cfg.addrAnnounce, "pub", "", publicUsage)
+	server.Flags().BoolVar(&flagSMR, "smr", false, smrUsage)
 	return server
 }

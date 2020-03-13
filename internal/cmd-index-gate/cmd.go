@@ -22,7 +22,7 @@ import (
 func MainCommand() *cobra.Command {
 	var cfg serviceConfig
 
-	cmd := &cobra.Command{
+	server := &cobra.Command{
 		Use:     "gate",
 		Aliases: []string{"proxy", "gateway"},
 		Short:   "Start a stateless index gateway",
@@ -30,38 +30,41 @@ func MainCommand() *cobra.Command {
 			if len(args) != 1 {
 				return errors.New("Missing positional args: ADDR")
 			} else {
-				cfg.AddrBind = args[0]
+				cfg.addrBind = args[0]
 			}
 
 			// FIXME(jfsmig): Fix the sanitizing of the input
-			if cfg.AddrBind == "" {
+			if cfg.addrBind == "" {
 				return errors.New("Missing bind address")
 			}
-			if cfg.AddrAnnounce == "" {
-				cfg.AddrAnnounce = cfg.AddrBind
+			if cfg.addrAnnounce == "" {
+				cfg.addrAnnounce = cfg.addrBind
 			}
 
-			lis, err := net.Listen("tcp", cfg.AddrBind)
+			lis, err := net.Listen("tcp", cfg.addrBind)
 			if err != nil {
-				return errors.New(fmt.Sprintf("Listen error (%s): %s", cfg.AddrBind, err.Error()))
+				return errors.New(fmt.Sprintf("Listen error (%s): %s", cfg.addrBind, err.Error()))
 			}
-			service, err := NewService()
+			service, err := NewService(cfg)
 			if err != nil {
 				return err
 			}
-			httpServer := helpers_grpc.ServerTLS(cfg.AddrAnnounce, func(srv *grpc.Server) {
+			httpServer, err := helpers_grpc.ServerTLS(cfg.dirConfig, func(srv *grpc.Server) {
 				gunkan_index_proto.RegisterIndexServer(srv, service)
 				gunkan_index_proto.RegisterDiscoveryServer(srv, service)
 			})
+			if err != nil {
+				return err
+			}
 			return httpServer.Serve(lis)
 		},
 	}
 
 	const (
 		publicUsage = "Public address of the service."
-		configUsage = "Specify a different address than the bind address"
+		tlsUsage    = "Path to a directory with the TLS configuration"
 	)
-	cmd.Flags().StringVar(&cfg.AddrAnnounce, "pub", "", publicUsage)
-	cmd.Flags().StringVar(&cfg.DirConfig, "f", "", configUsage)
-	return cmd
+	server.Flags().StringVar(&cfg.dirConfig, "tls", "", tlsUsage)
+	server.Flags().StringVar(&cfg.addrAnnounce, "pub", "", publicUsage)
+	return server
 }

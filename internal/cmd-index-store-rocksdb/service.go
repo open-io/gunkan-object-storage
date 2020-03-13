@@ -21,14 +21,14 @@ import (
 )
 
 type serviceConfig struct {
-	Uuid         string
-	AddrBind     string
-	AddrAnnounce string
-	DirConfig    string
-	DirBase      string
+	uuid         string
+	addrBind     string
+	addrAnnounce string
+	dirConfig    string
+	dirBase      string
 
-	DelayIoError   time.Duration
-	DelayFullError time.Duration
+	delayIoError   time.Duration
+	delayFullError time.Duration
 }
 
 type service struct {
@@ -39,7 +39,7 @@ type service struct {
 func NewService(cfg serviceConfig) (*service, error) {
 	options := gorocksdb.NewDefaultOptions()
 	options.SetCreateIfMissing(true)
-	db, err := gorocksdb.OpenDb(options, cfg.DirBase)
+	db, err := gorocksdb.OpenDb(options, cfg.dirBase)
 	if err != nil {
 		return nil, err
 	}
@@ -48,13 +48,13 @@ func NewService(cfg serviceConfig) (*service, error) {
 }
 
 func (srv *service) Put(ctx context.Context, req *proto.PutRequest) (*proto.None, error) {
-	var key gunkan.KeyVersion
+	var key gunkan.BaseKeyVersion
 
 	if req.Version == 0 {
-		key = gunkan.Key(req.Base, req.Key, uint64(time.Now().UnixNano()))
+		key = gunkan.BaseKey(req.Base, req.Key, uint64(time.Now().UnixNano()))
 	} else {
 		// TODO(jfs): dangerous possible override
-		key = gunkan.Key(req.Base, req.Key, req.Version)
+		key = gunkan.BaseKey(req.Base, req.Key, req.Version)
 	}
 	key.Active = true
 	encoded := []byte(key.Encode())
@@ -71,12 +71,12 @@ func (srv *service) Put(ctx context.Context, req *proto.PutRequest) (*proto.None
 }
 
 func (srv *service) Delete(ctx context.Context, req *proto.DeleteRequest) (*proto.None, error) {
-	var key gunkan.KeyVersion
+	var key gunkan.BaseKeyVersion
 
 	if req.Version == 0 {
-		key = gunkan.Key(req.Base, req.Key, uint64(time.Now().UnixNano()))
+		key = gunkan.BaseKey(req.Base, req.Key, uint64(time.Now().UnixNano()))
 	} else {
-		key = gunkan.Key(req.Base, req.Key, req.Version)
+		key = gunkan.BaseKey(req.Base, req.Key, req.Version)
 	}
 	key.Active = false
 	encoded := []byte(key.Encode())
@@ -93,12 +93,12 @@ func (srv *service) Delete(ctx context.Context, req *proto.DeleteRequest) (*prot
 }
 
 func (srv *service) Get(ctx context.Context, req *proto.GetRequest) (*proto.GetReply, error) {
-	var needle gunkan.KeyVersion
+	var needle gunkan.BaseKeyVersion
 
 	if req.Version == 0 {
-		needle = gunkan.KeyLatest(req.Base, req.Key)
+		needle = gunkan.BaseKeyLatest(req.Base, req.Key)
 	} else {
-		needle = gunkan.Key(req.Base, req.Key, req.Version)
+		needle = gunkan.BaseKey(req.Base, req.Key, req.Version)
 	}
 	encoded := []byte(needle.Encode())
 
@@ -140,11 +140,11 @@ func (srv *service) List(ctx context.Context, req *proto.ListRequest) (*proto.Li
 	var needle []byte
 	if len(req.Base) > 0 {
 		if len(req.Marker) > 0 {
-			var key gunkan.KeyVersion
+			var key gunkan.BaseKeyVersion
 			if req.MarkerVersion == 0 {
-				key = gunkan.KeyLatest(req.Base, req.Marker)
+				key = gunkan.BaseKeyLatest(req.Base, req.Marker)
 			} else {
-				key = gunkan.Key(req.Base, req.Marker, req.MarkerVersion)
+				key = gunkan.BaseKey(req.Base, req.Marker, req.MarkerVersion)
 			}
 			needle = []byte(key.Encode())
 		} else {

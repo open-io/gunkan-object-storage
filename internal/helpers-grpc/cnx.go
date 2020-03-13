@@ -18,14 +18,26 @@ import (
 	"io/ioutil"
 )
 
-func DialTLS(dirConfig, addrConnect string) (*grpc.ClientConn, error) {
-	cert, _ := ioutil.ReadFile(dirConfig + "/cert.pem")
-	//key, _ := ioutil.ReadFile(dirConfig + "/key.pem")
+func DialTLS(addrConnect, dirConfig string) (*grpc.ClientConn, error) {
+	var caBytes, certBytes []byte
+	var err error
+
+	if caBytes, err = ioutil.ReadFile(dirConfig + "/ca.cert"); err != nil {
+		return nil, err
+	}
+	if certBytes, err = ioutil.ReadFile(dirConfig + "/service.pem"); err != nil {
+		return nil, err
+	}
+	//if keyBytes, err = ioutil.ReadFile(dirConfig + "/service.key"); err != nil {
+	//	return nil, err
+	//}
 
 	certPool := x509.NewCertPool()
-	ok := certPool.AppendCertsFromPEM([]byte(cert))
-	if !ok {
-		return nil, errors.New("Invalid certificate")
+	if !certPool.AppendCertsFromPEM(certBytes) {
+		return nil, errors.New("Invalid certificate (service)")
+	}
+	if !certPool.AppendCertsFromPEM(caBytes) {
+		return nil, errors.New("Invalid certificate (authority)")
 	}
 
 	creds := credentials.NewClientTLSFromCert(certPool, "")
@@ -33,24 +45,39 @@ func DialTLS(dirConfig, addrConnect string) (*grpc.ClientConn, error) {
 	return grpc.Dial(addrConnect, grpc.WithTransportCredentials(creds))
 }
 
-func ServerTLS(dirConfig string, registerGrpc func(*grpc.Server)) *grpc.Server {
-	certBytes, _ := ioutil.ReadFile(dirConfig + "/cert.pem")
-	keyBytes, _ := ioutil.ReadFile(dirConfig + "/key.pem")
+func DialTLSInsecure(addrConnect string) (*grpc.ClientConn, error) {
+	config := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	creds := credentials.NewTLS(config)
+	return grpc.Dial(addrConnect, grpc.WithTransportCredentials(creds))
+}
+
+func ServerTLS(dirConfig string, registerGrpc func(*grpc.Server)) (*grpc.Server, error) {
+	var certBytes, keyBytes []byte
+	var err error
+
+	if certBytes, err = ioutil.ReadFile(dirConfig + "/service.pem"); err != nil {
+		return nil, err
+	}
+	if keyBytes, err = ioutil.ReadFile(dirConfig + "/service.key"); err != nil {
+		return nil, err
+	}
 
 	certPool := x509.NewCertPool()
 	ok := certPool.AppendCertsFromPEM(certBytes)
 	if !ok {
-		panic("bad certs")
+		return nil, errors.New("Invalid certificates")
 	}
 
 	cert, err := tls.X509KeyPair(certBytes, keyBytes)
 	if err != nil {
-		panic(err.Error())
+		return nil, err
 	}
 
 	creds := credentials.NewServerTLSFromCert(&cert)
 
 	grpcServer := grpc.NewServer(grpc.Creds(creds))
 	registerGrpc(grpcServer)
-	return grpcServer
+	return grpcServer, nil
 }

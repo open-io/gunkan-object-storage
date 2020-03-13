@@ -20,8 +20,10 @@ import (
 
 type config struct {
 	uuid         string
+	addrBind     string
 	addrAnnounce string
-	baseDir      string
+	dirConfig    string
+	dirBase      string
 
 	delayIoError   time.Duration
 	delayFullError time.Duration

@@ -16,7 +16,8 @@ const (
 )
 
 const (
-	ConsulSrvData  = "gkdata"
-	ConsulSrvIndex = "gkindex"
-	ConsulSrvBlob  = "gkblob"
+	ConsulSrvIndexGate  = "gkindex-gate"
+	ConsulSrvIndexStore = "gkindex-store"
+	ConsulSrvDataGate   = "gkdata-gate"
+	ConsulSrvBlobStore  = "gkblob-store"
 )

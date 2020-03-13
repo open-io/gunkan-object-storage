@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright 2019-2020 Jean-Francois Smigielski
 #
@@ -12,8 +12,9 @@ import os
 import subprocess
 from string import Template
 import time
+import tempfile
 
-BASEDIR = "/tmp/gunkan"
+BASEDIR = tempfile.mkdtemp(suffix='-test', prefix='gunkan-')
 DATADIR = BASEDIR + "/data"
 CFGDIR = BASEDIR + "/etc"
 
@@ -22,7 +23,7 @@ ip="127.0.0.1"
 
 consul_tpl = Template("""{
     "node_name": "test-node",
-    "datacenter": "tes-dc",
+    "datacenter": "test-dc",
     "data_dir": "$vol",
     "log_level": "INFO",
     "server": true,
@@ -39,7 +40,7 @@ consul_tpl = Template("""{
 consul_srv_http_tpl = Template("""{
     "service": {
         "check": {
-            "id": "check-$id",
+            "id": "$id",
             "interval": "2s",
             "timeout": "1s",
             "http": "http://$ip:$port/health"
@@ -54,13 +55,9 @@ consul_srv_http_tpl = Template("""{
 
 consul_srv_grpc_tpl = Template("""{
     "service": {
-        "check": {
-            "id": "check-$id",
-            "interval": "2s",
-            "timeout": "1s",
-            "grpc_use_tls": true,
-            "grpc": "$ip:$port"
-        },
+        "checks": [
+            { "interval": "2s", "timeout": "1s", "tcp": "$ip:$port" }
+        ],
         "id": "$id",
         "name": "$type",
         "tags": [ "$tag" ],
@@ -74,43 +71,83 @@ def stateless(t, num, e):
     uid = t + '-' + str(num)
     return {"tag": t, "type": t, "id": uid,
             "ip": ip, "port": 6000 + num, "exe": e,
-            "vol": None,
-            "cfg": CFGDIR + '/' + uid + '.d/'}
+            "vol": None, "cfg": CFGDIR}
 
 
 def statefull(t, num, e):
     uid = t + '-' + str(num)
     return {"tag": t, "type": uid, "id": uid,
             "ip": ip, "port": 6000 + num, "exe": e,
-            "vol": DATADIR + '/' + t + '-' + str(num),
-            "cfg": CFGDIR + '/' + uid + '.d/'}
+            "vol": DATADIR + '/' + t + '-' + str(num), "cfg": CFGDIR}
+
+
+def do(*args):
+    subprocess.check_call(args)
 
 
 def generate_certificate(path):
-    # FIXME(jfsmig): Make better than the self-signed certificate here-below
-    with open(path + '/cert.csr', 'w') as f:
-        subprocess.check_call(('openssl', 'req', '-new'), stdout=f)
-    subprocess.check_call(('openssl', 'rsa', '-in', path + '/privkey.pem','-out', path + 'key.pem'))
-    subprocess.check_call(('openssl', 'x509', '-in', path + '/cert.csr', '-out', path + '/cert.pem', '-req', '-signkey', 'key.pem', '-days', '1001'))
-    with open(path + '/cert.pem', 'a') as f:
-        subprocess.check_call(('cat', path + '/key.pem'), stdout=f)
+    def rel(s):
+        return path + '/' + s
+    with open(rel('certificate.conf'), 'w') as f:
+        f.write('''
+[ req ]
+prompt = no
+default_bits = 4096
+distinguished_name = req_distinguished_name
+req_extensions = req_ext
+
+[ req_distinguished_name ]
+C=FR
+ST=Nord
+L=Hem
+O=OpenIO
+OU=R&D
+CN=localhost
+
+[ req_ext ]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = hostname.domain.tld
+DNS.2 = hostname
+IP.1 = 127.0.0.1
+''')
+    do('openssl', 'genrsa',
+       '-out', rel('ca.key'), '4096')
+    do('openssl', 'req', '-new',
+       '-x509', '-key', rel('ca.key'), '-sha256',
+       '-subj', "/C=FR/ST=Nord/O=CA, Inc./CN=localhost", '-days', '365',
+       '-out', rel('ca.cert'))
+    do('openssl', 'genrsa',
+       '-out', rel('service.key'), '4096')
+    do('openssl', 'req', '-new',
+       '-key', rel('service.key'), '-out', rel('service.csr'),
+       '-config', rel('certificate.conf'))
+    do('openssl', 'x509', '-req',
+       '-in', rel('service.csr'),
+       '-CA', rel('ca.cert'), '-CAkey', rel('ca.key'), '-CAcreateserial',
+       '-out', rel('service.pem'), '-days', '365', '-sha256',
+       '-extfile', rel('certificate.conf'),
+       '-extensions', 'req_ext')
+    do('openssl', 'x509',
+       '-in', rel('service.pem'), '-text', '-noout')
 
 
-def sequence(start):
+def sequence(start=0):
     while True:
         yield start
         start+=1
 
 
 def services():
-    port = sequence(0)
-    for _i in range(11):
-        yield "grpc", statefull("gkindex-store", next(port), "gunkan-index-store-rocksdb")
-    for _i in range(11):
-        yield "http", statefull("gkblob-store", next(port), "gunkan-blob-store-fs")
-    for _i in range(7):
-        yield "grpc", stateless("gkindex-gate", next(port), "gunkan-index-gate")
+    port = sequence()
     for _i in range(5):
+        yield "grpc", statefull("gkindex-store", next(port), "gunkan-index-store-rocksdb")
+    for _i in range(5):
+        yield "http", statefull("gkblob-store", next(port), "gunkan-blob-store-fs")
+    for _i in range(3):
+        yield "grpc", stateless("gkindex-gate", next(port), "gunkan-index-gate")
+    for _i in range(3):
         yield "http", stateless("gkdata-gate", next(port), "gunkan-data-gate")
 
 
@@ -124,7 +161,6 @@ for kind, srv in services():
     try:
         if srv['cfg']:
             os.makedirs(srv['cfg'])
-        #generate_certificate(srv['cfg'])
     except OSError:
         pass
 
@@ -146,16 +182,17 @@ for kind, srv in services():
         else:
             raise ValueError("Invalid service kind")
 
+# Generate a certificate that will be used by all the services.
+generate_certificate(CFGDIR)
+
 # Start the services
 children = list()
 for kind, srv in services():
     endpoint = srv['ip'] + ':' + str(srv['port'])
-    cmd = ('/bin/false',)
-    if srv['vol']:  # statefull
-        cmd = (srv['exe'], endpoint, srv['vol'])
-    else:  # stateless
-        cmd = (srv['exe'], endpoint)
-    print repr(cmd)
+    cmd = [srv['exe'], '--tls', srv['cfg'], endpoint]
+    if srv['vol']:
+        cmd.append(srv['vol'])
+    print(repr(cmd))
     child = subprocess.Popen(cmd)
     children.append(child)
 

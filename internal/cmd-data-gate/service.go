@@ -11,6 +11,7 @@ package cmd_data_gate
 
 import (
 	"encoding/json"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"io"
 	"net/http"
 	"os"
@@ -22,7 +23,7 @@ type config struct {
 	uuid         string
 	addrBind     string
 	addrAnnounce string
-	configDir    string
+	dirConfig    string
 }
 
 type srvStats struct {
@@ -31,11 +32,20 @@ type srvStats struct {
 }
 
 type service struct {
-	config config
-	stats  srvStats
+	config    config
+	stats     srvStats
+	discovery gunkan.Discovery
+}
 
-	lastIoError   time.Time
-	lastFullError time.Time
+func NewService(cfg config) (*service, error) {
+	var err error
+	srv := service{config: cfg}
+	srv.discovery, err = gunkan.NewDiscovery()
+	if err != nil {
+		return nil, err
+	} else {
+		return &srv, nil
+	}
 }
 
 func get(h handler) handler {
