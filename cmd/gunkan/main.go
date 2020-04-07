@@ -10,11 +10,10 @@
 package main
 
 import (
-	"errors"
 	"github.com/jfsmig/object-storage/internal/cmd-blob-client"
 	"github.com/jfsmig/object-storage/internal/cmd-index-client"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"github.com/spf13/cobra"
-	"log"
 )
 
 func main() {
@@ -22,9 +21,10 @@ func main() {
 		Use:   "gunkan",
 		Short: "Manage your data and metadata on hunkan services",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return errors.New("Missing subcommand")
+			return cobra.ErrSubCommandRequired
 		},
 	}
+	gunkan.PatchCommandLogs(rootCmd)
 
 	blobCmd := cmd_blob_client.MainCommand()
 	blobCmd.Use = "blob"
@@ -37,6 +37,6 @@ func main() {
 	rootCmd.AddCommand(blobCmd)
 	rootCmd.AddCommand(kvCmd)
 	if err := rootCmd.Execute(); err != nil {
-		log.Fatalln("Command error:", err)
+		gunkan.Logger.Fatal().Err(err).Msg("Command error")
 	}
 }

@@ -88,13 +88,13 @@ func handleList() handler {
 			return
 		}
 
-		client, err := gunkan.DialIndex(addr, ctx.srv.config.dirConfig)
+		client, err := gunkan.DialIndexGrpc(addr, ctx.srv.config.dirConfig)
 		if err != nil {
 			ctx.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		tab, err := client.List(ctx.req.Context(), gunkan.BaseKeyLatest(bucket, marker), max32)
+		tab, err := client.List(ctx.req.Context(), gunkan.BK(bucket, marker), max32)
 		if err != nil {
 			ctx.replyError(err)
 			return
@@ -104,7 +104,7 @@ func handleList() handler {
 			ctx.WriteHeader(http.StatusNoContent)
 		} else {
 			for _, item := range tab {
-				fmt.Fprintf(ctx.rep, "%s %d\n", item.Key, item.Version)
+				fmt.Println(item)
 			}
 		}
 	}

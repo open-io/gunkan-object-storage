@@ -21,3 +21,7 @@ const (
 	ConsulSrvDataGate   = "gkdata-gate"
 	ConsulSrvBlobStore  = "gkblob-store"
 )
+
+const (
+	ListHardMax = 10000
+)
