@@ -141,9 +141,9 @@ def sequence(start=0):
 
 def services():
     port = sequence()
-    for _i in range(5):
+    for _i in range(3):
         yield "grpc", statefull("gkindex-store", next(port), "gunkan-index-store-rocksdb")
-    for _i in range(5):
+    for _i in range(3):
         yield "http", statefull("gkblob-store", next(port), "gunkan-blob-store-fs")
     for _i in range(3):
         yield "grpc", stateless("gkindex-gate", next(port), "gunkan-index-gate")

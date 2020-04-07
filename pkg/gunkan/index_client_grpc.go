@@ -15,10 +15,9 @@ import (
 	"google.golang.org/grpc"
 
 	"context"
-	"errors"
 )
 
-func DialIndex(url, dirConfig string) (IndexClient, error) {
+func DialIndexGrpc(url, dirConfig string) (IndexClient, error) {
 	cnx, err := helpers_grpc.DialTLSInsecure(url)
 	if err != nil {
 		return nil, err
@@ -30,9 +29,9 @@ type IndexGrpcClient struct {
 	cnx *grpc.ClientConn
 }
 
-func (self *IndexGrpcClient) Get(ctx context.Context, key BaseKeyVersion) (string, error) {
+func (self *IndexGrpcClient) Get(ctx context.Context, key BaseKey) (string, error) {
 	client := kv.NewIndexClient(self.cnx)
-	req := kv.GetRequest{Base: key.Base, Key: key.Key, Version: 0}
+	req := kv.GetRequest{Base: key.Base, Key: key.Key}
 	rep, err := client.Get(ctx, &req)
 	if err != nil {
 		return "", err
@@ -41,41 +40,27 @@ func (self *IndexGrpcClient) Get(ctx context.Context, key BaseKeyVersion) (strin
 	return rep.Value, nil
 }
 
-func (self *IndexGrpcClient) List(ctx context.Context, key BaseKeyVersion, max uint32) ([]KeyVersion, error) {
+func (self *IndexGrpcClient) List(ctx context.Context, key BaseKey, max uint32) ([]string, error) {
 	client := kv.NewIndexClient(self.cnx)
-	req := kv.ListRequest{Base: key.Base, Marker: key.Key, MarkerVersion: 0, Max: max}
+	req := kv.ListRequest{Base: key.Base, Marker: key.Key, Max: max}
 	rep, err := client.List(ctx, &req)
 	if err != nil {
-		return []KeyVersion{}, err
+		return []string{}, err
 	}
 
-	rc := make([]KeyVersion, 0)
-	for _, i := range rep.Items {
-		rc = append(rc, KeyVersion{Key: i.Key, Version: i.Version})
-	}
-	return rc, err
+	return rep.Items, err
 }
 
-func (self *IndexGrpcClient) Put(ctx context.Context, key BaseKeyVersion, value string) error {
+func (self *IndexGrpcClient) Put(ctx context.Context, key BaseKey, value string) error {
 	client := kv.NewIndexClient(self.cnx)
-	req := kv.PutRequest{Base: key.Base, Key: key.Key, Version: key.Version, Value: value}
+	req := kv.PutRequest{Base: key.Base, Key: key.Key, Value: value}
 	_, err := client.Put(ctx, &req)
 	return err
 }
 
-func (self *IndexGrpcClient) Delete(ctx context.Context, key BaseKeyVersion) error {
+func (self *IndexGrpcClient) Delete(ctx context.Context, key BaseKey) error {
 	client := kv.NewIndexClient(self.cnx)
-	req := kv.DeleteRequest{Base: key.Base, Key: key.Key, Version: key.Version}
+	req := kv.DeleteRequest{Base: key.Base, Key: key.Key}
 	_, err := client.Delete(ctx, &req)
 	return err
-}
-
-func (self *IndexGrpcClient) Status(ctx context.Context) (IndexStats, error) {
-	// FIXME(jfs): Query using HTTP
-	return IndexStats{}, errors.New("NYI")
-}
-
-func (self *IndexGrpcClient) Health(ctx context.Context) (string, error) {
-	// FIXME(jfs): Query using HTTP
-	return "", errors.New("NYI")
 }

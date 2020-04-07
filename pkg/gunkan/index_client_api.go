@@ -13,23 +13,23 @@ import (
 	"context"
 )
 
-type IndexClient interface {
+type DiscoveryClient interface {
 	Status(ctx context.Context) (IndexStats, error)
 
 	Health(ctx context.Context) (string, error)
+}
 
-	Put(ctx context.Context, key BaseKeyVersion, value string) error
+type IndexClient interface {
+	Put(ctx context.Context, key BaseKey, value string) error
 
-	Get(ctx context.Context, key BaseKeyVersion) (string, error)
+	Get(ctx context.Context, key BaseKey) (string, error)
 
-	Delete(ctx context.Context, key BaseKeyVersion) error
+	Delete(ctx context.Context, key BaseKey) error
 
-	List(ctx context.Context, marker BaseKeyVersion, max uint32) ([]KeyVersion, error)
+	List(ctx context.Context, marker BaseKey, max uint32) ([]string, error)
 }
 
 type IndexStats struct {
-	B_in     uint64 `json:"b_in"`
-	B_out    uint64 `json:"b_out"`
 	T_info   uint64 `json:"t_info"`
 	T_health uint64 `json:"t_health"`
 	T_status uint64 `json:"t_status"`

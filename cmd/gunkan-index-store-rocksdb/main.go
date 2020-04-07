@@ -11,13 +11,14 @@ package main
 
 import (
 	"github.com/jfsmig/object-storage/internal/cmd-index-store-rocksdb"
-	"log"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 )
 
 func main() {
 	rootCmd := cmd_index_store_rocksdb.MainCommand()
+	gunkan.PatchCommandLogs(rootCmd)
 	rootCmd.Use = "gunkan-index-store-rocksdb"
 	if err := rootCmd.Execute(); err != nil {
-		log.Fatalln("Command error:", err)
+		gunkan.Logger.Fatal().Err(err).Msg("Command error")
 	}
 }

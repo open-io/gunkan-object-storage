@@ -16,16 +16,15 @@ import (
 	"github.com/jfsmig/object-storage/pkg/gunkan"
 	proto "github.com/jfsmig/object-storage/pkg/gunkan-index-proto"
 	"google.golang.org/grpc"
-	"log"
 	"sync"
 	"time"
 )
 
 const (
-	parallelismPut    = 3
-	parallelismGet    = 3
-	parallelismDelete = 3
-	parallelismList   = 3
+	parallelismPut    = 5
+	parallelismGet    = 5
+	parallelismDelete = 5
+	parallelismList   = 5
 )
 
 type serviceConfig struct {
@@ -51,7 +50,7 @@ func NewService(config serviceConfig) (*service, error) {
 	srv.back = make(map[string]*grpc.ClientConn)
 
 	var err error
-	srv.discovery, err = gunkan.NewDiscovery()
+	srv.discovery, err = gunkan.NewDiscoveryDefault()
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +74,7 @@ func (srv *service) reload() {
 	// Get all the declared backends
 	addrs, err := srv.discovery.ListIndexStore()
 	if err != nil {
-		log.Printf("Discovery error while listing the Index stores: %s", err.Error())
+		gunkan.Logger.Warn().Err(err).Msg("Discovery: index stores")
 		return
 	}
 
@@ -87,7 +86,7 @@ func (srv *service) reload() {
 		}
 		c, err := helpers_grpc.DialTLSInsecure(a)
 		if err != nil {
-			log.Printf("Discovery error while connecting [%s]: %s", a, err.Error())
+			gunkan.Logger.Warn().Err(err).Str("to", a).Msg("Connection error to index")
 			srv.back[a] = nil
 		} else {
 			srv.back[a] = c
@@ -113,7 +112,7 @@ type targetErrorValue struct {
 
 type targetErrorList struct {
 	targetError
-	items []*proto.ObjectId
+	items []string
 }
 
 type targetInput struct {
@@ -221,10 +220,12 @@ func (srv *service) Put(ctx context.Context, req *proto.PutRequest) (*proto.None
 	any := false
 	for err := range out {
 		if err.err == nil {
-			log.Printf("Put [%s] on [%s]", req.Key, err.addr)
+			gunkan.Logger.Debug().
+				Str("op", "PUT").Str("k", req.Key).Str("srv", err.addr)
 			any = true
 		} else {
-			log.Printf("Put error for [%s] on [%s]: %s", req.Key, err.addr, err.err.Error())
+			gunkan.Logger.Warn().
+				Str("op", "PUT").Str("k", req.Key).Str("srv", err.addr).Err(err.err)
 		}
 	}
 
@@ -263,10 +264,12 @@ func (srv *service) Delete(ctx context.Context, req *proto.DeleteRequest) (*prot
 	any := false
 	for err := range out {
 		if err.err == nil {
-			log.Printf("Deleted [%s] on [%s]", req.Key, err.addr)
+			gunkan.Logger.Debug().
+				Str("op", "DEL").Str("k", req.Key).Str("srv", err.addr)
 			any = true
 		} else {
-			log.Printf("Delete error for [%s] on [%s]: %s", req.Key, err.addr, err.err.Error())
+			gunkan.Logger.Debug().
+				Str("op", "DEL").Str("k", req.Key).Str("srv", err.addr).Err(err.err)
 		}
 	}
 	srv.rw.RUnlock()
@@ -318,7 +321,7 @@ func (srv *service) Get(ctx context.Context, req *proto.GetRequest) (*proto.GetR
 	rep := proto.GetReply{Value: "", Version: 0}
 	for x := range out {
 		if x.err != nil {
-			log.Println("Get [%s] failed on [%s]", req.Key, x.addr)
+			gunkan.Logger.Warn().Str("op", "GET").Str("k", req.Key).Str("srv", x.addr).Err(x.err)
 		} else {
 			any = true
 			if x.version > rep.Version {
@@ -355,6 +358,12 @@ func (srv *service) List(ctx context.Context, req *proto.ListRequest) (*proto.Li
 		return out
 	}
 
+	if req.Max <= 0 {
+		req.Max = 1
+	} else if req.Max > gunkan.ListHardMax {
+		req.Max = gunkan.ListHardMax
+	}
+
 	srv.rw.RLock()
 	srv.rw.RUnlock()
 
@@ -372,20 +381,90 @@ func (srv *service) List(ctx context.Context, req *proto.ListRequest) (*proto.Li
 
 	any := false
 	rep := proto.ListReply{}
+
+	tabs := make([][]string, 0)
 	for x := range out {
 		if x.err != nil {
-			log.Println("List failed on [%s]", x.addr)
+			gunkan.Logger.Info().
+				Str("op", "LIST").
+				Str("k", req.Marker).Str("srv", x.addr).
+				Err(x.err)
 		} else {
 			any = true
-			rep.Items = append(rep.Items, x.items...)
+			tabs = append(tabs, x.items)
 		}
 	}
 
+	for x := range keepSingleDedup(tabs, req.Max) {
+		rep.Items = append(rep.Items, x)
+	}
 	if !any {
 		return nil, errors.New("No backend replied")
 	} else {
 		return &rep, nil
 	}
+}
+
+func keepSingleDedup(tabs [][]string, max uint32) <-chan string {
+	nbTabs := len(tabs)
+	maxes := make([]int, nbTabs, nbTabs)
+	indices := make([]int, nbTabs, nbTabs)
+	for i, tab := range tabs {
+		maxes[i] = len(tab)
+	}
+	out := make(chan string, 1024)
+
+	min := func() string {
+		var min string
+		var iMin int
+		for i, tab := range tabs {
+			if indices[i] >= maxes[i] {
+				continue
+			}
+			obj := tab[indices[i]]
+			if min == "" || obj < min {
+				iMin = i
+				min = obj
+			}
+		}
+		if min != "" {
+			indices[iMin]++
+		}
+		return min
+	}
+
+	var last string
+	poll := func() string {
+		for {
+			obj := min()
+			if obj == "" {
+				return ""
+			}
+			if last == "" {
+				last = obj
+				return last
+			}
+			if last == obj {
+				continue
+			}
+			last = obj
+			return last
+		}
+	}
+
+	go func() {
+		sent := uint32(0)
+		for obj := poll(); obj != ""; obj = poll() {
+			if sent >= max {
+				break
+			}
+			out <- obj
+			sent++
+		}
+		close(out)
+	}()
+
+	return out
 }
 
 func (srv *service) Info(ctx context.Context, req *proto.None) (*proto.InfoReply, error) {

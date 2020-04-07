@@ -16,7 +16,8 @@ import (
 	"github.com/jfsmig/object-storage/pkg/gunkan"
 	proto "github.com/jfsmig/object-storage/pkg/gunkan-index-proto"
 	"github.com/tecbot/gorocksdb"
-	"log"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"time"
 )
 
@@ -48,20 +49,15 @@ func NewService(cfg serviceConfig) (*service, error) {
 }
 
 func (srv *service) Put(ctx context.Context, req *proto.PutRequest) (*proto.None, error) {
-	var key gunkan.BaseKeyVersion
+	key := gunkan.BK(req.Base, req.Key)
 
-	if req.Version == 0 {
-		key = gunkan.BaseKey(req.Base, req.Key, uint64(time.Now().UnixNano()))
-	} else {
-		// TODO(jfs): dangerous possible override
-		key = gunkan.BaseKey(req.Base, req.Key, req.Version)
-	}
-	key.Active = true
 	encoded := []byte(key.Encode())
 
 	// FIXME(jfs): check if the KV is present
 
 	opts := gorocksdb.NewDefaultWriteOptions()
+	defer opts.Destroy()
+	opts.SetSync(false)
 	err := srv.db.Put(opts, encoded, []byte(req.Value))
 	if err != nil {
 		return nil, err
@@ -71,19 +67,14 @@ func (srv *service) Put(ctx context.Context, req *proto.PutRequest) (*proto.None
 }
 
 func (srv *service) Delete(ctx context.Context, req *proto.DeleteRequest) (*proto.None, error) {
-	var key gunkan.BaseKeyVersion
-
-	if req.Version == 0 {
-		key = gunkan.BaseKey(req.Base, req.Key, uint64(time.Now().UnixNano()))
-	} else {
-		key = gunkan.BaseKey(req.Base, req.Key, req.Version)
-	}
-	key.Active = false
+	key := gunkan.BK(req.Base, req.Key)
 	encoded := []byte(key.Encode())
 
 	// FIXME(jfs): check if the KV is present
 
 	opts := gorocksdb.NewDefaultWriteOptions()
+	opts.SetSync(false)
+	defer opts.Destroy()
 	err := srv.db.Put(opts, encoded, []byte{})
 	if err != nil {
 		return nil, err
@@ -93,86 +84,85 @@ func (srv *service) Delete(ctx context.Context, req *proto.DeleteRequest) (*prot
 }
 
 func (srv *service) Get(ctx context.Context, req *proto.GetRequest) (*proto.GetReply, error) {
-	var needle gunkan.BaseKeyVersion
-
-	if req.Version == 0 {
-		needle = gunkan.BaseKeyLatest(req.Base, req.Key)
-	} else {
-		needle = gunkan.BaseKey(req.Base, req.Key, req.Version)
-	}
+	needle := gunkan.BK(req.Base, req.Key)
 	encoded := []byte(needle.Encode())
 
 	opts := gorocksdb.NewDefaultReadOptions()
+	defer opts.Destroy()
+	opts.SetFillCache(true)
 	iterator := srv.db.NewIterator(opts)
 	iterator.Seek(encoded)
 	if !iterator.Valid() {
 		return nil, errors.New("Not found")
 	}
 
-	var got gunkan.KeyVersion
+	var got gunkan.BaseKey
 	sk := iterator.Key()
 	if err := got.DecodeBytes(sk.Data()); err != nil {
 		return nil, err
 	}
 
 	// Latest item wanted
-	if got.Key != needle.Key {
+	if got.Base != needle.Base || got.Key != needle.Key {
 		return nil, errors.New("Not found")
 	}
-	if !got.Active {
-		return nil, errors.New("Deleted")
-	}
 
-	rep := proto.GetReply{
-		Version: got.Version,
-		Value:   string(iterator.Value().Data()),
-	}
-	return &rep, nil
+	return &proto.GetReply{Value: string(iterator.Value().Data())}, nil
 }
 
 func (srv *service) List(ctx context.Context, req *proto.ListRequest) (*proto.ListReply, error) {
 	if req.Max < 0 {
 		req.Max = 1
-	} else if req.Max > 1000 {
-		req.Max = 1000
+	} else if req.Max > gunkan.ListHardMax {
+		req.Max = gunkan.ListHardMax
+	}
+
+	if req.Base == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "Missing base")
 	}
 
 	var needle []byte
 	if len(req.Base) > 0 {
 		if len(req.Marker) > 0 {
-			var key gunkan.BaseKeyVersion
-			if req.MarkerVersion == 0 {
-				key = gunkan.BaseKeyLatest(req.Base, req.Marker)
-			} else {
-				key = gunkan.BaseKey(req.Base, req.Marker, req.MarkerVersion)
-			}
-			needle = []byte(key.Encode())
+			needle = []byte(gunkan.BK(req.Base, req.Marker).Encode())
 		} else {
 			needle = []byte(req.Base + ",")
 		}
 	}
 
 	opts := gorocksdb.NewDefaultReadOptions()
+	defer opts.Destroy()
+	opts.SetFillCache(true)
 	iterator := srv.db.NewIterator(opts)
-	iterator.Seek(needle)
 
 	rep := proto.ListReply{}
+
+	iterator.Seek(needle)
 	for ; iterator.Valid(); iterator.Next() {
 		if bytes.Compare(iterator.Key().Data(), needle) > 0 {
 			break
 		}
 	}
 	for ; iterator.Valid(); iterator.Next() {
-		log.Println("!", string(iterator.Key().Data()))
+		// Check we didn't reach the max elements
 		if uint32(len(rep.Items)) > req.Max {
 			break
 		}
+
+		// Check the base matches
 		sk := iterator.Key()
-		rep.Items = append(rep.Items, &proto.ObjectId{
-			Version: 0,
-			Key:     string(sk.Data()),
-		})
+		var k gunkan.BaseKey
+		err := k.DecodeBytes(sk.Data())
+		if err != nil {
+			return nil, status.Errorf(codes.DataLoss, "Malformed DB entry")
+		}
+		if k.Base != req.Base {
+			break
+		}
+
+		rep.Items = append(rep.Items, k.Key)
 	}
+
 	return &rep, nil
 }
 

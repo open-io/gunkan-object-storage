@@ -10,9 +10,8 @@
 package cmd_blob_client
 
 import (
-	"errors"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"github.com/spf13/cobra"
-	"log"
 )
 
 func MainCommand() *cobra.Command {
@@ -21,7 +20,7 @@ func MainCommand() *cobra.Command {
 		Aliases: []string{"client"},
 		Short:   "Client of BLOB services",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return errors.New("Missing subcommand")
+			return cobra.ErrSubCommandRequired
 		},
 	}
 	client.AddCommand(PutCommand())
@@ -34,10 +33,11 @@ func MainCommand() *cobra.Command {
 }
 
 func debug(id string, err error) {
+	gunkan.Logger.Info().Str("id", id).Err(err)
 	if err == nil {
-		log.Printf("%v OK", id)
+		gunkan.Logger.Info().Str("id", id).Msg("ok")
 	} else {
-		log.Printf("%v %v", id, err)
+		gunkan.Logger.Info().Str("id", id).Err(err)
 	}
 }
 

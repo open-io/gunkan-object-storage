@@ -11,13 +11,14 @@ package main
 
 import (
 	"github.com/jfsmig/object-storage/internal/cmd-blob-store-fs"
-	"log"
+	"github.com/jfsmig/object-storage/pkg/gunkan"
 )
 
 func main() {
 	rootCmd := cmd_blob_store_fs.MainCommand()
+	gunkan.PatchCommandLogs(rootCmd)
 	rootCmd.Use = "gunkan-blobstore"
 	if err := rootCmd.Execute(); err != nil {
-		log.Fatalln("Command error:", err)
+		gunkan.Logger.Fatal().Err(err).Msg("Command error")
 	}
 }

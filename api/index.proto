@@ -12,13 +12,16 @@ syntax = "proto3";
 package gunkan.index.proto;
 
 service Discovery {
-    // Push a BLOB reference in the index
+    // Returns a description of the service.
+    // NEVER RECURSIVE: the RPC returns information about the current service.
     rpc Info (None) returns (InfoReply) {}
 
-    // Remove a BLOB reference from the index
+    // Returns a minimalistic description of the availability of the service.
+    // NEVER RECURSIVE: the RPC tells the health status of the target service
     rpc Health (None) returns (HealthReply) {}
 
-    // Fetch the BLOB reference for the given Key
+    // Returns usage statistics. Counters and gauges.
+    // NEVER RECURSIVE: the RPC returns the stats of that targeted service.
     rpc Stats (None) returns (StatsReply) {}
 }
 
@@ -42,20 +45,17 @@ message None {
 message PutRequest {
     string base = 1;
     string key = 2;
-    uint64 version = 3;
     string value = 4;
 }
 
 message DeleteRequest {
     string base = 1;
     string key = 2;
-    uint64 version = 3;
 }
 
 message GetRequest {
     string base = 1;
     string key = 2;
-    uint64 version = 3;
 }
 
 message GetReply {
@@ -66,17 +66,11 @@ message GetReply {
 message ListRequest {
     string base = 1;
     string marker = 2;
-    uint64 markerVersion = 3;
-    uint32 max = 4;
+    uint32 max = 3;
 }
 
 message ListReply {
-    repeated ObjectId items = 1;
-}
-
-message ObjectId {
-    string key = 1;
-    uint64 version = 2;
+    repeated string items = 1;
 }
 
 message InfoReply {
@@ -88,8 +82,6 @@ message HealthReply {
 }
 
 message StatsReply {
-    uint64 B_in = 1;
-    uint64 B_out = 2;
     uint64 T_info = 3;
     uint64 T_health = 4;
     uint64 T_status = 5;

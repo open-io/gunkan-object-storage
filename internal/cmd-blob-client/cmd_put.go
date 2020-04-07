@@ -14,7 +14,6 @@ import (
 	"errors"
 	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"github.com/spf13/cobra"
-	"log"
 	"os"
 )
 
@@ -57,7 +56,7 @@ func PutCommand() *cobra.Command {
 			}
 
 			if err != nil {
-				log.Printf("OK %s %s", id.Encode(), realid)
+				gunkan.Logger.Info().Str("id", id.Encode()).Str("real", realid).Msg("ok")
 			}
 			return err
 		},

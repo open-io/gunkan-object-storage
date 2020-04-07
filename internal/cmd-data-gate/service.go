@@ -40,7 +40,7 @@ type service struct {
 func NewService(cfg config) (*service, error) {
 	var err error
 	srv := service{config: cfg}
-	srv.discovery, err = gunkan.NewDiscovery()
+	srv.discovery, err = gunkan.NewDiscoveryDefault()
 	if err != nil {
 		return nil, err
 	} else {
