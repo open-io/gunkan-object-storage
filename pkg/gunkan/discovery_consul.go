@@ -79,6 +79,15 @@ func (self *consulDiscovery) PollDataGate() (string, error) {
 	}
 }
 
+func (self *consulDiscovery) PollBlobStore() (string, error) {
+	_, addrv, err := self.resolver.LookupSRV(context.Background(), ConsulSrvBlobStore, ConsulSrvBlobStore, "service.consul")
+	if err != nil {
+		return "", err
+	} else {
+		return peekAddr(addrv)
+	}
+}
+
 func (self *consulDiscovery) ListIndexGate() ([]string, error) {
 	return self.listServices(ConsulSrvIndexGate)
 }

@@ -13,6 +13,9 @@ type Discovery interface {
 	// Returns the URL of an available Data Gate service
 	PollDataGate() (string, error)
 
+	// Returns the URL of an available Data Gate service
+	PollBlobStore() (string, error)
+
 	// Returns the URL of an available Index Gate service
 	PollIndexGate() (string, error)
 
