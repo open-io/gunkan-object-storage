@@ -20,7 +20,7 @@ const (
 
 type IndexPooledClient struct {
 	dirConfig string
-	lb Balancer
+	lb        Balancer
 	pool      chan IndexClient
 	remaining chan bool
 }

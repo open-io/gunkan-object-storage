@@ -32,9 +32,9 @@ type srvStats struct {
 }
 
 type service struct {
-	config   config
-	stats    srvStats
-	lb gunkan.Balancer
+	config config
+	stats  srvStats
+	lb     gunkan.Balancer
 }
 
 func NewService(cfg config) (*service, error) {
