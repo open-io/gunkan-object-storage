@@ -6,6 +6,7 @@ AUTO=
 AUTO+= pkg/gunkan-index-proto/index.pb.go
 
 all: prepare
+	$(GO) mod download
 	$(GO) install $(BASE)/cmd/gunkan
 	$(GO) install $(BASE)/cmd/gunkan-data-gate
 	$(GO) install $(BASE)/cmd/gunkan-blob-store-fs

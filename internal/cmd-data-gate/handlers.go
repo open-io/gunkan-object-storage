@@ -10,10 +10,12 @@
 package cmd_data_gate
 
 import (
+	"errors"
 	"fmt"
 	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 type handlerContext struct {
@@ -48,6 +50,7 @@ func handleHealth() handler {
 
 func handleBlob() handler {
 	return func(ctx *handlerContext) {
+		gunkan.Logger.Debug().Str("method", ctx.req.Method).Msg("blob request")
 		id := ctx.req.URL.Path[len(prefixBlob):]
 		switch ctx.Method() {
 		case "GET", "HEAD":
@@ -82,7 +85,7 @@ func handleList() handler {
 		max32 := uint32(max64)
 
 		// Query the index about a slice of items
-		addr, err := ctx.srv.discovery.PollIndexGate()
+		addr, err := ctx.srv.lb.PollIndexGate()
 		if err != nil {
 			ctx.WriteHeader(http.StatusInternalServerError)
 			return
@@ -118,6 +121,60 @@ func handleBlobGet(ctx *handlerContext, blobid string) {
 	ctx.WriteHeader(http.StatusNotImplemented)
 }
 
-func handleBlobPut(ctx *handlerContext, encoded string) {
+const (
+	HeaderPrefixCommon     = "X-gk-"
+	HeaderNameObjectPolicy = HeaderPrefixCommon + "obj-policy"
+)
+
+func handleBlobPut(ctx *handlerContext, tail string) {
+	var err error
+	var policy string
+
+	gunkan.Logger.Warn().Str("url", tail).Msg("PUT")
+
+	// Unpack the object name
+	tokens := strings.Split(tail, "/")
+	if len(tokens) != 3 {
+		ctx.replyCodeError(http.StatusBadRequest, errors.New("3 tokens expected"))
+		return
+	}
+
+	var id gunkan.BlobId
+	id.Bucket = tokens[0]
+	id.Content = tokens[1]
+	id.PartId = tokens[2]
+
+	// Locate the storage policy
+	policy = ctx.req.Header.Get(HeaderNameObjectPolicy)
+	if policy == "" {
+		policy = "single"
+	}
+
+	gunkan.Logger.Warn().Str("pol", policy).Str("obj", id.Encode()).Msg("PUT")
+
+	// Find a set of backends
+	// FIXME(jfsmig): Dumb implementation that only accept the "SINGLE COPY" policy
+	var url string
+	url, err = ctx.srv.lb.PollBlobStore()
+	if err != nil {
+		ctx.replyCodeError(http.StatusServiceUnavailable, err)
+		return
+	}
+
+	var realid string
+	var client gunkan.BlobClient
+	client, err = gunkan.DialBlob(url)
+	if err != nil {
+		ctx.replyCodeError(http.StatusInternalServerError, err)
+		return
+	}
+	defer client.Close()
+
+	realid, err = client.Put(ctx.req.Context(), id, ctx.Input())
+	if err != nil {
+		ctx.replyCodeError(http.StatusServiceUnavailable, err)
+		return
+	}
+	ctx.rep.Header().Set(HeaderPrefixCommon+"part-read-id", realid)
 	ctx.WriteHeader(http.StatusNotImplemented)
 }

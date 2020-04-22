@@ -32,15 +32,15 @@ type srvStats struct {
 }
 
 type service struct {
-	config    config
-	stats     srvStats
-	discovery gunkan.Discovery
+	config config
+	stats  srvStats
+	lb     gunkan.Balancer
 }
 
 func NewService(cfg config) (*service, error) {
 	var err error
 	srv := service{config: cfg}
-	srv.discovery, err = gunkan.NewDiscoveryDefault()
+	srv.lb, err = gunkan.NewBalancerDefault()
 	if err != nil {
 		return nil, err
 	} else {
