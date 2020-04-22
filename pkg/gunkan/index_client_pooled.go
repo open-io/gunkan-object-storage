@@ -20,7 +20,7 @@ const (
 
 type IndexPooledClient struct {
 	dirConfig string
-	discovery Discovery
+	lb Balancer
 	pool      chan IndexClient
 	remaining chan bool
 }
@@ -29,7 +29,7 @@ func DialIndexPooled(dirConfig string) (IndexClient, error) {
 	var err error
 	var client IndexPooledClient
 
-	client.discovery, err = NewDiscoveryDefault()
+	client.lb, err = NewBalancerDefault()
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (self *IndexPooledClient) Delete(ctx context.Context, key BaseKey) error {
 }
 
 func (self *IndexPooledClient) dial(ctx context.Context) (IndexClient, error) {
-	url, err := self.discovery.PollIndexGate()
+	url, err := self.lb.PollIndexGate()
 	if err != nil {
 		return nil, err
 	}

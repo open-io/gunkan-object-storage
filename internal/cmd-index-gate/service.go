@@ -35,8 +35,11 @@ type serviceConfig struct {
 }
 
 type service struct {
-	cfg          serviceConfig
-	discovery    gunkan.Discovery
+	cfg serviceConfig
+
+	balancer gunkan.Balancer
+	catalog  gunkan.Catalog
+
 	wg           sync.WaitGroup
 	rw           sync.RWMutex
 	back         map[string]*grpc.ClientConn
@@ -44,13 +47,19 @@ type service struct {
 }
 
 func NewService(config serviceConfig) (*service, error) {
+	var err error
+
 	srv := service{}
 	srv.cfg = config
 	srv.flag_running = true
 	srv.back = make(map[string]*grpc.ClientConn)
 
-	var err error
-	srv.discovery, err = gunkan.NewDiscoveryDefault()
+	srv.catalog, err = gunkan.NewCatalogDefault()
+	if err != nil {
+		return nil, err
+	}
+
+	srv.balancer, err = gunkan.NewBalancerSimple(srv.catalog)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +81,7 @@ func (srv *service) reload() {
 	defer srv.rw.Unlock()
 
 	// Get all the declared backends
-	addrs, err := srv.discovery.ListIndexStore()
+	addrs, err := srv.catalog.ListIndexStore()
 	if err != nil {
 		gunkan.Logger.Warn().Err(err).Msg("Discovery: index stores")
 		return

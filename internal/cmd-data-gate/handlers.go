@@ -85,7 +85,7 @@ func handleList() handler {
 		max32 := uint32(max64)
 
 		// Query the index about a slice of items
-		addr, err := ctx.srv.discovery.PollIndexGate()
+		addr, err := ctx.srv.lb.PollIndexGate()
 		if err != nil {
 			ctx.WriteHeader(http.StatusInternalServerError)
 			return
@@ -155,7 +155,7 @@ func handleBlobPut(ctx *handlerContext, tail string) {
 	// Find a set of backends
 	// FIXME(jfsmig): Dumb implementation that only accept the "SINGLE COPY" policy
 	var url string
-	url, err = ctx.srv.discovery.PollBlobStore()
+	url, err = ctx.srv.lb.PollBlobStore()
 	if err != nil {
 		ctx.replyCodeError(http.StatusServiceUnavailable, err)
 		return

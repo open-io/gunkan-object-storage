@@ -11,21 +11,17 @@ package gunkan
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	consulapi "github.com/armon/consul-api"
-	"math/rand"
 	"net"
 	"strconv"
-	"strings"
 )
 
 func GetConsulEndpoint() (string, error) {
 	return "127.0.0.1", nil
 }
 
-func NewDiscoveryConsul(ip string) (Discovery, error) {
+func NewCatalogConsul(ip string) (Catalog, error) {
 	d := consulDiscovery{}
 	if err := d.init(ip); err != nil {
 		return nil, err
@@ -61,33 +57,6 @@ func (self *consulDiscovery) init(ip string) error {
 	return err
 }
 
-func (self *consulDiscovery) PollIndexGate() (string, error) {
-	_, addrv, err := self.resolver.LookupSRV(context.Background(), ConsulSrvIndexGate, ConsulSrvIndexGate, "service.consul")
-	if err != nil {
-		return "", err
-	} else {
-		return peekAddr(addrv)
-	}
-}
-
-func (self *consulDiscovery) PollDataGate() (string, error) {
-	_, addrv, err := self.resolver.LookupSRV(context.Background(), ConsulSrvDataGate, ConsulSrvDataGate, "service.consul")
-	if err != nil {
-		return "", err
-	} else {
-		return peekAddr(addrv)
-	}
-}
-
-func (self *consulDiscovery) PollBlobStore() (string, error) {
-	_, addrv, err := self.resolver.LookupSRV(context.Background(), ConsulSrvBlobStore, ConsulSrvBlobStore, "service.consul")
-	if err != nil {
-		return "", err
-	} else {
-		return peekAddr(addrv)
-	}
-}
-
 func (self *consulDiscovery) ListIndexGate() ([]string, error) {
 	return self.listServices(ConsulSrvIndexGate)
 }
@@ -102,15 +71,6 @@ func (self *consulDiscovery) ListIndexStore() ([]string, error) {
 
 func (self *consulDiscovery) ListBlobStore() ([]string, error) {
 	return self.listServices(ConsulSrvBlobStore)
-}
-
-func arrayHas(needle string, haystack []string) bool {
-	for _, hay := range haystack {
-		if hay == needle {
-			return true
-		}
-	}
-	return false
 }
 
 func (self *consulDiscovery) listServices(srvtype string) ([]string, error) {
@@ -141,19 +101,11 @@ func (self *consulDiscovery) listServices(srvtype string) ([]string, error) {
 	}
 }
 
-func peekAddr(addrs []*net.SRV) (string, error) {
-	// FIXME(jfs): use a weighted random
-	rand.Shuffle(len(addrs), func(i, j int) { addrs[i], addrs[j] = addrs[j], addrs[i] })
-
-	addr := addrs[0]
-	idxDot := strings.IndexRune(addr.Target, '.')
-	if idxDot == 8 {
-		str := addr.Target[:8]
-		bin, _ := hex.DecodeString(str)
-		return fmt.Sprintf("%d.%d.%d.%d:%d", bin[0], bin[1], bin[2], bin[3], addr.Port), nil
-	} else if idxDot == 32 {
-		return "", errors.New("IPv6 not managed")
-	} else {
-		return "", errors.New("Adress scheme not managed")
+func arrayHas(needle string, haystack []string) bool {
+	for _, hay := range haystack {
+		if hay == needle {
+			return true
+		}
 	}
+	return false
 }

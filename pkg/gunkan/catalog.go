@@ -9,16 +9,7 @@
 
 package gunkan
 
-type Discovery interface {
-	// Returns the URL of an available Data Gate service
-	PollDataGate() (string, error)
-
-	// Returns the URL of an available Data Gate service
-	PollBlobStore() (string, error)
-
-	// Returns the URL of an available Index Gate service
-	PollIndexGate() (string, error)
-
+type Catalog interface {
 	// Returns the list of all the Data Gate services
 	ListDataGate() ([]string, error)
 
@@ -33,10 +24,10 @@ type Discovery interface {
 }
 
 // Returns a discovery client initiated
-func NewDiscoveryDefault() (Discovery, error) {
+func NewCatalogDefault() (Catalog, error) {
 	if consul, err := GetConsulEndpoint(); err != nil {
 		return nil, err
-	} else if discovery, err := NewDiscoveryConsul(consul); err != nil {
+	} else if discovery, err := NewCatalogConsul(consul); err != nil {
 		return nil, err
 	} else {
 		return discovery, nil
