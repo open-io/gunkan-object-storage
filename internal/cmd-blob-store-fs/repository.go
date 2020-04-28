@@ -10,31 +10,54 @@
 package cmd_blob_store_fs
 
 import (
-	"errors"
+	"fmt"
 	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"golang.org/x/sys/unix"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 )
+
+type Repo interface {
+	Create(id gunkan.BlobId) (BlobBuilder, error)
+	Open(blobId string) (BlobReader, error)
+	Delete(blobId string) error
+}
+
+type BlobReader interface {
+	Stream() *os.File
+	Close()
+}
+
+type BlobBuilder interface {
+	Stream() *os.File
+	Commit() (string, error)
+	Abort() error
+}
 
 type fsPostRepo struct {
 	fdBase   int
 	pathBase string
 
+	rwRand sync.RWMutex
+	idRand *rand.Rand
+
 	// Control the way a filename is hashed to get the directory hierarchy
 	hashWidth uint
-	hashDepth uint
 
-	sync     bool
-	datasync bool
+	// Control the guarantees given before replying to the client
+	syncFile bool
+	syncDir  bool
 }
 
 type fsPostRW struct {
-	file      *os.File
-	repo      *fsPostRepo
-	pathFinal string
+	file *os.File
+	repo *fsPostRepo
+	id   gunkan.BlobId
 }
 
 type fsPostRO struct {
@@ -44,31 +67,31 @@ type fsPostRO struct {
 
 func MakePostNamed(basedir string) (Repo, error) {
 	var err error
-	r := fsPostRepo{pathBase: basedir, hashWidth: 3, hashDepth: 1, sync: false, datasync: false}
+	r := fsPostRepo{
+		fdBase:    -1,
+		pathBase:  basedir,
+		hashWidth: 4,
+		syncFile:  false,
+		syncDir:   false}
+
 	r.fdBase, err = syscall.Open(r.pathBase, flagsOpenDir, 0)
 	if err != nil {
 		return nil, err
-	} else {
-		return &r, nil
 	}
+
+	r.idRand = rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	return &r, nil
 }
 
 func (r *fsPostRepo) relpath(objname string) (string, error) {
 	sb := strings.Builder{}
-	sb.Grow(256)
-	any := false
-	for i := uint(0); i < r.hashDepth; i++ {
-		if any {
-			sb.WriteRune('/')
-		}
-		any = true
-		start := i * r.hashWidth
-		sb.WriteString(objname[start : start+r.hashWidth])
-	}
-	if any {
+	sb.Grow(16)
+	if r.hashWidth > 0 {
+		sb.WriteString(objname[0:r.hashWidth])
 		sb.WriteRune('/')
 	}
-	sb.WriteString(objname[r.hashWidth*r.hashDepth:])
+	sb.WriteString(objname[r.hashWidth:])
 	return sb.String(), nil
 }
 
@@ -104,28 +127,28 @@ func (r *fsPostRepo) Delete(relpath string) error {
 	return unix.Unlinkat(r.fdBase, relpath, 0)
 }
 
-func (r *fsPostRepo) Create(obj gunkan.BlobId) (BlobBuilder, error) {
-	encoded := obj.Encode()
-	pathFinal, err := r.relpath(encoded)
+func (r *fsPostRepo) nextId() string {
+	d := (time.Now().UnixNano() / (1024 * 1024 * 256)) % 65536
+	f := uint32(r.idRand.Int31n(1024 * 1024))
+	return fmt.Sprintf("%04X%05X", d, f)
+}
+
+func (r *fsPostRepo) Create(id gunkan.BlobId) (BlobBuilder, error) {
+	cid := r.nextId()
+
+	pathFinal, err := r.relpath(cid)
 	if err != nil {
 		return nil, err
 	}
 
-	pathTemp := strings.Replace(pathFinal, ",", "@", 1)
-	if pathTemp == pathFinal {
-		return nil, errors.New("Malformed blob path")
-	}
-
-	f, err := r.createOrRetry(pathFinal, true)
-	return &fsPostRW{
-		file:      f,
-		pathFinal: pathFinal,
-		repo:      r}, nil
+	var f *os.File
+	f, err = r.createOrRetry(pathFinal, true)
+	return &fsPostRW{file: f, repo: r, id: id}, err
 }
 
-func (r *fsPostRepo) Open(blobid string) (BlobReader, error) {
+func (r *fsPostRepo) Open(realid string) (BlobReader, error) {
 	var err error
-	relpath, err := r.relpath(blobid)
+	relpath, err := r.relpath(realid)
 	if err != nil {
 		return nil, err
 	}
@@ -153,19 +176,20 @@ func (f *fsPostRW) Abort() error {
 }
 
 func (f *fsPostRW) Commit() (string, error) {
-	if f.file == nil {
+	if f == nil || f.file == nil {
 		panic("Invalid file being commited")
 	}
 
 	var err error
-	if f.repo.sync {
+	if f.repo.syncFile {
 		err = f.file.Sync()
-	} else if f.repo.datasync {
+	}
+	if f.repo.syncDir {
 		err = unix.Fdatasync(int(f.file.Fd()))
 	}
-	err = unix.Renameat(f.repo.fdBase, f.file.Name(), f.repo.fdBase, f.pathFinal)
+
 	_ = f.file.Close()
-	return f.pathFinal, err
+	return f.file.Name(), err
 }
 
 func (f *fsPostRO) Stream() *os.File {

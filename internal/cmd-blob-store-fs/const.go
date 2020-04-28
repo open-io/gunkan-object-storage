@@ -24,10 +24,7 @@ const (
 )
 
 const (
-	routeInfo   = "/info"
-	routeHealth = "/health"
-	routeStatus = "/status"
-	routeList   = "/v1/list"
-	prefixBlob  = "/v1/blob/"
-	infoString  = "gunkan/blob-store-" + gunkan.VersionString
+	routeList  = "/v1/list"
+	prefixData = "/v1/blob/"
+	infoString = "gunkan/blob-store-" + gunkan.VersionString
 )

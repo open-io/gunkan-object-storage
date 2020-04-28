@@ -12,18 +12,9 @@ package cmd_data_gate
 import (
 	"errors"
 	"fmt"
-	"github.com/jfsmig/object-storage/pkg/gunkan"
+	ghttp "github.com/jfsmig/object-storage/internal/helpers-http"
 	"github.com/spf13/cobra"
 	"net/http"
-)
-
-const (
-	routeInfo   = "/info"
-	routeHealth = "/health"
-	routeStatus = "/status"
-	routeList   = "/v1/list"
-	prefixBlob  = "/v1/part/"
-	infoString  = "gunkan/data-gate-" + gunkan.VersionString
 )
 
 func MainCommand() *cobra.Command {
@@ -48,16 +39,14 @@ func MainCommand() *cobra.Command {
 				cfg.addrAnnounce = cfg.addrBind
 			}
 
-			srv, err := NewService(cfg)
+			srv, err := newService(cfg)
 			if err != nil {
 				return err
 			}
-			http.HandleFunc(routeInfo, wrap(srv, get(handleInfo())))
-			http.HandleFunc(routeStatus, wrap(srv, get(handleStatus())))
-			http.HandleFunc(routeHealth, wrap(srv, get(handleHealth())))
-			http.HandleFunc(prefixBlob, wrap(srv, handleBlob()))
-			http.HandleFunc(routeList, wrap(srv, get(handleList())))
-			err = http.ListenAndServe(cfg.addrBind, nil)
+			httpService := ghttp.NewHttpApi(cfg.addrAnnounce, infoString)
+			httpService.Route(routeList, ghttp.Get(srv.handleList()))
+			httpService.Route(prefixData, srv.handlePart())
+			err = http.ListenAndServe(cfg.addrBind, httpService.Handler())
 			if err != nil {
 				return errors.New(fmt.Sprintf("HTTP error [%s]", cfg.addrBind, err.Error()))
 			}

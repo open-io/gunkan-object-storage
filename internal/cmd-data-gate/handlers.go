@@ -12,63 +12,38 @@ package cmd_data_gate
 import (
 	"errors"
 	"fmt"
+	ghttp "github.com/jfsmig/object-storage/internal/helpers-http"
 	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
-type handlerContext struct {
-	srv   *service
-	req   *http.Request
-	rep   http.ResponseWriter
-	code  int
-	stats srvStats
-}
-
-type handler func(ctx *handlerContext)
-
-func handleInfo() handler {
-	return func(ctx *handlerContext) {
-		ctx.setHeader("Content-Type", "text/plain")
-		_, _ = ctx.Write([]byte(infoString))
-	}
-}
-
-func handleStatus() handler {
-	return func(ctx *handlerContext) {
-		var st = ctx.srv.stats
-		ctx.JSON(&st)
-	}
-}
-
-func handleHealth() handler {
-	return func(ctx *handlerContext) {
-		ctx.WriteHeader(http.StatusNoContent)
-	}
-}
-
-func handleBlob() handler {
-	return func(ctx *handlerContext) {
-		gunkan.Logger.Debug().Str("method", ctx.req.Method).Msg("blob request")
-		id := ctx.req.URL.Path[len(prefixBlob):]
+func (srv *service) handlePart() ghttp.RequestHandler {
+	return func(ctx *ghttp.RequestContext) {
+		pre := time.Now()
+		id := ctx.Req.URL.Path[len(prefixData):]
 		switch ctx.Method() {
 		case "GET", "HEAD":
-			handleBlobGet(ctx, id)
+			srv.handleBlobGet(ctx, id)
+			srv.timeGet.Observe(time.Since(pre).Seconds())
 		case "PUT":
-			handleBlobPut(ctx, id)
+			srv.handleBlobPut(ctx, id)
+			srv.timePut.Observe(time.Since(pre).Seconds())
 		case "DELETE":
-			handleBlobDel(ctx, id)
+			srv.handleBlobDel(ctx, id)
+			srv.timeDel.Observe(time.Since(pre).Seconds())
 		default:
 			ctx.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	}
 }
 
-func handleList() handler {
-	return func(ctx *handlerContext) {
+func (srv *service) handleList() ghttp.RequestHandler {
+	h := func(ctx *ghttp.RequestContext) {
 		// Unpack request attributes
-		q := ctx.req.URL.Query()
+		q := ctx.Req.URL.Query()
 		bucket := q.Get("b")
 		smax := q.Get("max")
 		marker := q.Get("m")
@@ -85,21 +60,21 @@ func handleList() handler {
 		max32 := uint32(max64)
 
 		// Query the index about a slice of items
-		addr, err := ctx.srv.lb.PollIndexGate()
+		addr, err := srv.lb.PollIndexGate()
 		if err != nil {
 			ctx.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		client, err := gunkan.DialIndexGrpc(addr, ctx.srv.config.dirConfig)
+		client, err := gunkan.DialIndexGrpc(addr, srv.config.dirConfig)
 		if err != nil {
 			ctx.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		tab, err := client.List(ctx.req.Context(), gunkan.BK(bucket, marker), max32)
+		tab, err := client.List(ctx.Req.Context(), gunkan.BK(bucket, marker), max32)
 		if err != nil {
-			ctx.replyError(err)
+			ctx.ReplyError(err)
 			return
 		}
 
@@ -111,31 +86,29 @@ func handleList() handler {
 			}
 		}
 	}
+	return func(ctx *ghttp.RequestContext) {
+		pre := time.Now()
+		h(ctx)
+		srv.timeList.Observe(time.Since(pre).Seconds())
+	}
 }
 
-func handleBlobDel(ctx *handlerContext, blobid string) {
+func (srv *service) handleBlobDel(ctx *ghttp.RequestContext, blobid string) {
 	ctx.WriteHeader(http.StatusNotImplemented)
 }
 
-func handleBlobGet(ctx *handlerContext, blobid string) {
+func (srv *service) handleBlobGet(ctx *ghttp.RequestContext, blobid string) {
 	ctx.WriteHeader(http.StatusNotImplemented)
 }
 
-const (
-	HeaderPrefixCommon     = "X-gk-"
-	HeaderNameObjectPolicy = HeaderPrefixCommon + "obj-policy"
-)
-
-func handleBlobPut(ctx *handlerContext, tail string) {
+func (srv *service) handleBlobPut(ctx *ghttp.RequestContext, tail string) {
 	var err error
 	var policy string
-
-	gunkan.Logger.Warn().Str("url", tail).Msg("PUT")
 
 	// Unpack the object name
 	tokens := strings.Split(tail, "/")
 	if len(tokens) != 3 {
-		ctx.replyCodeError(http.StatusBadRequest, errors.New("3 tokens expected"))
+		ctx.ReplyCodeError(http.StatusBadRequest, errors.New("3 tokens expected"))
 		return
 	}
 
@@ -145,19 +118,17 @@ func handleBlobPut(ctx *handlerContext, tail string) {
 	id.PartId = tokens[2]
 
 	// Locate the storage policy
-	policy = ctx.req.Header.Get(HeaderNameObjectPolicy)
+	policy = ctx.Req.Header.Get(HeaderNameObjectPolicy)
 	if policy == "" {
 		policy = "single"
 	}
 
-	gunkan.Logger.Warn().Str("pol", policy).Str("obj", id.Encode()).Msg("PUT")
-
 	// Find a set of backends
 	// FIXME(jfsmig): Dumb implementation that only accept the "SINGLE COPY" policy
 	var url string
-	url, err = ctx.srv.lb.PollBlobStore()
+	url, err = srv.lb.PollBlobStore()
 	if err != nil {
-		ctx.replyCodeError(http.StatusServiceUnavailable, err)
+		ctx.ReplyCodeError(http.StatusServiceUnavailable, err)
 		return
 	}
 
@@ -165,16 +136,16 @@ func handleBlobPut(ctx *handlerContext, tail string) {
 	var client gunkan.BlobClient
 	client, err = gunkan.DialBlob(url)
 	if err != nil {
-		ctx.replyCodeError(http.StatusInternalServerError, err)
+		ctx.ReplyCodeError(http.StatusInternalServerError, err)
 		return
 	}
 	defer client.Close()
 
-	realid, err = client.Put(ctx.req.Context(), id, ctx.Input())
+	realid, err = client.Put(ctx.Req.Context(), id, ctx.Input())
 	if err != nil {
-		ctx.replyCodeError(http.StatusServiceUnavailable, err)
+		ctx.ReplyCodeError(http.StatusServiceUnavailable, err)
 		return
 	}
-	ctx.rep.Header().Set(HeaderPrefixCommon+"part-read-id", realid)
-	ctx.WriteHeader(http.StatusNotImplemented)
+	ctx.SetHeader(HeaderPrefixCommon+"part-read-id", realid)
+	ctx.WriteHeader(http.StatusCreated)
 }

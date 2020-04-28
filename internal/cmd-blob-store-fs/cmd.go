@@ -12,12 +12,12 @@ package cmd_blob_store_fs
 import (
 	"errors"
 	"fmt"
+	ghttp "github.com/jfsmig/object-storage/internal/helpers-http"
 	"github.com/spf13/cobra"
 	"net/http"
 )
 
 func MainCommand() *cobra.Command {
-	var flagSMR bool
 	var cfg config
 
 	server := &cobra.Command{
@@ -43,24 +43,15 @@ func MainCommand() *cobra.Command {
 				cfg.addrAnnounce = cfg.addrBind
 			}
 
-			var err error
-			var repo Repo
-			if flagSMR {
-				repo, err = MakePostNamed(cfg.dirBase)
-			} else {
-				repo, err = MakePreNamed(cfg.dirBase)
-			}
+			srv, err := newService(cfg)
 			if err != nil {
 				return errors.New(fmt.Sprintf("Repository error [%s]", cfg.dirBase, err.Error()))
 			}
 
-			srv := service{repo: repo, config: cfg}
-			http.HandleFunc(routeInfo, wrap(&srv, get(handleInfo())))
-			http.HandleFunc(routeStatus, wrap(&srv, get(handleStatus())))
-			http.HandleFunc(routeHealth, wrap(&srv, get(handleHealth())))
-			http.HandleFunc(prefixBlob, wrap(&srv, handleBlob()))
-			http.HandleFunc(routeList, wrap(&srv, get(handleList())))
-			err = http.ListenAndServe(cfg.addrBind, nil)
+			api := ghttp.NewHttpApi(cfg.addrAnnounce, infoString)
+			api.Route(routeList, ghttp.Get(srv.handleList()))
+			api.Route(prefixData, srv.handleBlob())
+			err = http.ListenAndServe(cfg.addrBind, api.Handler())
 			if err != nil {
 				return errors.New(fmt.Sprintf("HTTP error [%s]", cfg.addrBind, err.Error()))
 			}
@@ -75,6 +66,5 @@ func MainCommand() *cobra.Command {
 	)
 	server.Flags().StringVar(&cfg.dirConfig, "tls", "", tlsUsage)
 	server.Flags().StringVar(&cfg.addrAnnounce, "pub", "", publicUsage)
-	server.Flags().BoolVar(&flagSMR, "smr", false, smrUsage)
 	return server
 }

@@ -11,6 +11,7 @@ package cmd_blob_store_fs
 
 import (
 	"fmt"
+	ghttp "github.com/jfsmig/object-storage/internal/helpers-http"
 	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"golang.org/x/sys/unix"
 	"io"
@@ -18,92 +19,54 @@ import (
 	"time"
 )
 
-type handlerContext struct {
-	srv   *service
-	req   *http.Request
-	rep   http.ResponseWriter
-	code  int
-	stats srvStats
-}
-
-type handler func(ctx *handlerContext)
-
-func handleInfo() handler {
-	return func(ctx *handlerContext) {
-		ctx.setHeader("Content-Type", "text/plain")
-		_, _ = ctx.Write([]byte(infoString))
-	}
-}
-
-func handleStatus() handler {
-	return func(ctx *handlerContext) {
-		var st = ctx.srv.stats
-		ctx.JSON(&st)
-	}
-}
-
-func handleHealth() handler {
-	return func(ctx *handlerContext) {
-		now := time.Now()
-		if ctx.srv.isError(now) {
-			ctx.replyCodeErrorMsg(http.StatusBadGateway, "Recent I/O errors")
-		} else if ctx.srv.isFull(now) {
-			// Consul reacts to http.StatusTooManyRequests with a warning but
-			// no error. It seems a better alternative to http.StatusInsufficientStorage
-			// that would mark the service as failed.
-			ctx.replyCodeErrorMsg(http.StatusTooManyRequests, "Full")
-		} else if ctx.srv.isOverloaded(now) {
-			ctx.replyCodeErrorMsg(http.StatusTooManyRequests, "Overloaded")
-		} else {
-			ctx.WriteHeader(http.StatusNoContent)
-		}
-	}
-}
-
-func handleBlob() handler {
-	return func(ctx *handlerContext) {
-		id := ctx.req.URL.Path[len(prefixBlob):]
+func (srv *service) handleBlob() ghttp.RequestHandler {
+	return func(ctx *ghttp.RequestContext) {
+		pre := time.Now()
+		id := ctx.Req.URL.Path[len(prefixData):]
 		switch ctx.Method() {
 		case "GET", "HEAD":
-			handleBlobGet(ctx, id)
+			srv.handleBlobGet(ctx, id)
+			srv.timeGet.Observe(time.Since(pre).Seconds())
 		case "PUT":
-			handleBlobPut(ctx, id)
+			srv.handleBlobPut(ctx, id)
+			srv.timePut.Observe(time.Since(pre).Seconds())
 		case "DELETE":
-			handleBlobDel(ctx, id)
+			srv.handleBlobDel(ctx, id)
+			srv.timeDel.Observe(time.Since(pre).Seconds())
 		default:
 			ctx.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	}
 }
 
-func handleList() handler {
-	return func(ctx *handlerContext) {
-		switch ctx.Method() {
-		case "GET", "HEAD":
-			ctx.WriteHeader(http.StatusNotImplemented)
-		default:
-			ctx.WriteHeader(http.StatusMethodNotAllowed)
-		}
+func (srv *service) handleList() ghttp.RequestHandler {
+	h := func(ctx *ghttp.RequestContext) {
+		ctx.WriteHeader(http.StatusNotImplemented)
+	}
+	return func(ctx *ghttp.RequestContext) {
+		pre := time.Now()
+		h(ctx)
+		srv.timeList.Observe(time.Since(pre).Seconds())
 	}
 }
 
-func handleBlobDel(ctx *handlerContext, blobid string) {
-	err := ctx.srv.repo.Delete(blobid)
+func (srv *service) handleBlobDel(ctx *ghttp.RequestContext, blobid string) {
+	err := srv.repo.Delete(blobid)
 	if err != nil {
-		ctx.replyError(err)
+		ctx.ReplyError(err)
 	} else {
-		ctx.success()
+		ctx.ReplySuccess()
 	}
 }
 
-func handleBlobGet(ctx *handlerContext, blobid string) {
+func (srv *service) handleBlobGet(ctx *ghttp.RequestContext, blobid string) {
 	var st unix.Stat_t
 	var f BlobReader
 	var err error
 
-	f, err = ctx.srv.repo.Open(blobid)
+	f, err = srv.repo.Open(blobid)
 	if err != nil {
-		ctx.replyError(err)
+		ctx.ReplyError(err)
 		return
 	} else {
 		defer f.Close()
@@ -112,30 +75,32 @@ func handleBlobGet(ctx *handlerContext, blobid string) {
 	err = unix.Fstat(int(f.Stream().Fd()), &st)
 	if err == nil {
 		if st.Size == 0 {
-			ctx.setHeader("Content-Length", "0")
+			ctx.SetHeader("Content-Length", "0")
 			ctx.WriteHeader(http.StatusNoContent)
 		} else {
-			ctx.setHeader("Content-Length", fmt.Sprintf("%d", st.Size))
+			ctx.SetHeader("Content-Length", fmt.Sprintf("%d", st.Size))
 			ctx.WriteHeader(http.StatusOK)
 		}
-		ctx.setHeader("Content-Type", "octet/stream")
+		ctx.SetHeader("Content-Type", "octet/stream")
 		_, err = io.Copy(ctx.Output(), &io.LimitedReader{R: f.Stream(), N: st.Size})
 	}
 	if err != nil {
-		ctx.replyError(err)
+		ctx.ReplyError(err)
 	}
 }
 
-func handleBlobPut(ctx *handlerContext, encoded string) {
-	objid := gunkan.BlobId{}
-	if err := objid.Decode(string(encoded)); err != nil {
-		ctx.replyCodeError(http.StatusBadRequest, err)
+func (srv *service) handleBlobPut(ctx *ghttp.RequestContext, encoded string) {
+	var err error
+	var id gunkan.BlobId
+
+	if id, err = gunkan.DecodeBlobId(string(encoded)); err != nil {
+		ctx.ReplyCodeError(http.StatusBadRequest, err)
 		return
 	}
 
-	f, err := ctx.srv.repo.Create(objid)
+	f, err := srv.repo.Create(id)
 	if err != nil {
-		ctx.replyError(err)
+		ctx.ReplyError(err)
 		return
 	}
 
@@ -143,11 +108,11 @@ func handleBlobPut(ctx *handlerContext, encoded string) {
 	_, err = io.Copy(f.Stream(), ctx.Input())
 	if err != nil {
 		f.Abort()
-		ctx.replyError(err)
+		ctx.ReplyError(err)
 	} else if final, err = f.Commit(); err != nil {
-		ctx.replyError(err)
+		ctx.ReplyError(err)
 	} else {
-		ctx.setHeader("Location", final)
+		ctx.SetHeader("Location", final)
 		ctx.WriteHeader(http.StatusCreated)
 	}
 }
