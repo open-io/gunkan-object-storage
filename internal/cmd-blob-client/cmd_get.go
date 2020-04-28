@@ -45,9 +45,8 @@ func GetCommand() *cobra.Command {
 
 func getOne(client gunkan.BlobClient, strid string) error {
 	var err error
-	var id gunkan.BlobId
 
-	if err = id.Decode(strid); err != nil {
+	if _, err = gunkan.DecodeBlobId(strid); err != nil {
 		return err
 	} else {
 		r, err := client.Get(context.Background(), strid)

@@ -29,13 +29,13 @@ type BlobId struct {
 	Position uint
 }
 
-func (self *BlobId) EncodeMarker() string {
+func (self BlobId) EncodeMarker() string {
 	var b strings.Builder
 	self.EncodeMarkerIn(&b)
 	return b.String()
 }
 
-func (self *BlobId) EncodeMarkerIn(b *strings.Builder) {
+func (self BlobId) EncodeMarkerIn(b *strings.Builder) {
 	b.Grow(256)
 	b.WriteString(self.Bucket)
 	if len(self.Content) > 0 {
@@ -48,13 +48,13 @@ func (self *BlobId) EncodeMarkerIn(b *strings.Builder) {
 	}
 }
 
-func (self *BlobId) Encode() string {
+func (self BlobId) Encode() string {
 	var b strings.Builder
 	self.EncodeIn(&b)
 	return b.String()
 }
 
-func (self *BlobId) EncodeIn(b *strings.Builder) {
+func (self BlobId) EncodeIn(b *strings.Builder) {
 	b.Grow(256)
 	b.WriteString(self.Bucket)
 	b.WriteRune(',')
@@ -65,15 +65,16 @@ func (self *BlobId) EncodeIn(b *strings.Builder) {
 	b.WriteString(strconv.FormatUint(uint64(self.Position), 10))
 }
 
-func (self *BlobId) Decode(packed string) error {
+func DecodeBlobId(packed string) (BlobId, error) {
+	var id BlobId
 	b := strings.Builder{}
-	step := stepBlobParsingContent
+	step := stepBlobParsingBucket
 	for _, c := range packed {
 		switch step {
 		case stepBlobParsingBucket:
 			if c == ',' {
 				step = stepBlobParsingContent
-				self.Bucket = b.String()
+				id.Bucket = b.String()
 				b.Reset()
 			} else {
 				b.WriteRune(c)
@@ -81,7 +82,7 @@ func (self *BlobId) Decode(packed string) error {
 		case stepBlobParsingContent:
 			if c == ',' {
 				step = stepBlobParsingPart
-				self.Content = b.String()
+				id.Content = b.String()
 				b.Reset()
 			} else {
 				b.WriteRune(c)
@@ -89,14 +90,14 @@ func (self *BlobId) Decode(packed string) error {
 		case stepBlobParsingPart:
 			if c == ',' {
 				step = stepBlobParsingPosition
-				self.PartId = b.String()
+				id.PartId = b.String()
 				b.Reset()
 			} else {
 				b.WriteRune(c)
 			}
 		case stepBlobParsingPosition:
 			if c == ',' {
-				return errors.New("Invalid BLOB id")
+				return id, errors.New("Invalid BLOB id")
 			} else {
 				b.WriteRune(c)
 			}
@@ -104,8 +105,8 @@ func (self *BlobId) Decode(packed string) error {
 			panic("Invalid State")
 		}
 	}
-	strpos := b.String()
-	u64, err := strconv.ParseUint(strpos, 10, 31)
-	self.Position = uint(u64)
-	return err
+
+	u64, err := strconv.ParseUint(b.String(), 10, 31)
+	id.Position = uint(u64)
+	return id, err
 }

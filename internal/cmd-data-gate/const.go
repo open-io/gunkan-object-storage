@@ -7,26 +7,19 @@
 // found online at https://opensource.org/licenses/MIT.
 //
 
-package cmd_blob_store_fs
+package cmd_data_gate
 
 import (
 	"github.com/jfsmig/object-storage/pkg/gunkan"
-	"os"
 )
 
-type Repo interface {
-	Create(objid gunkan.BlobId) (BlobBuilder, error)
-	Open(blobid string) (BlobReader, error)
-	Delete(blobid string) error
-}
+const (
+	routeList  = "/v1/list"
+	prefixData = "/v1/part/"
+	infoString = "gunkan/data-gate-" + gunkan.VersionString
+)
 
-type BlobReader interface {
-	Stream() *os.File
-	Close()
-}
-
-type BlobBuilder interface {
-	Stream() *os.File
-	Commit() (string, error)
-	Abort() error
-}
+const (
+	HeaderPrefixCommon     = "X-gk-"
+	HeaderNameObjectPolicy = HeaderPrefixCommon + "obj-policy"
+)

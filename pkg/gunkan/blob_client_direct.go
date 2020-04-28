@@ -224,7 +224,7 @@ func unpackBlobIdArray(body io.Reader) ([]BlobListItem, error) {
 		} else if len(line) > 0 {
 			var id BlobId
 			line = strings.Trim(line, "\r\n")
-			if err = id.Decode(line); err != nil {
+			if id, err = DecodeBlobId(line); err != nil {
 				return nil, err
 			} else {
 				rc = append(rc, BlobListItem{"", id})

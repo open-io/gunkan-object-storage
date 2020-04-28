@@ -31,7 +31,7 @@ func PutCommand() *cobra.Command {
 			if len(args) < 1 {
 				return errors.New("Missing Blob ID")
 			}
-			if err = id.Decode(args[0]); err != nil {
+			if id, err = gunkan.DecodeBlobId(args[0]); err != nil {
 				return err
 			}
 
