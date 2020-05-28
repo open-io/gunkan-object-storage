@@ -139,7 +139,6 @@ func (srv *service) handleBlobPut(ctx *ghttp.RequestContext, tail string) {
 		ctx.ReplyCodeError(http.StatusInternalServerError, err)
 		return
 	}
-	defer client.Close()
 
 	realid, err = client.Put(ctx.Req.Context(), id, ctx.Input())
 	if err != nil {

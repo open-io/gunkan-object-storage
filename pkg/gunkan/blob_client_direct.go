@@ -10,47 +10,40 @@
 package gunkan
 
 import (
-	"context"
-	"io/ioutil"
-
 	"bufio"
-	"encoding/json"
+	"context"
 	"io"
-	"net/http"
+	"io/ioutil"
 	"strings"
 )
 
 type httpBlobClient struct {
-	endpoint string
-	client   http.Client
+	client HttpSimpleClient
 }
 
 func DialBlob(url string) (BlobClient, error) {
-	return newHttpBlobClient(url), nil
-}
-
-func newHttpBlobClient(url string) BlobClient {
-	return &httpBlobClient{endpoint: url, client: http.Client{}}
-}
-
-func (self *httpBlobClient) Close() error {
-	self.client.CloseIdleConnections()
-	return nil
+	var err error
+	var rc httpBlobClient
+	err = rc.client.Init(url)
+	if err != nil {
+		return nil, err
+	}
+	return &rc, nil
 }
 
 func (self *httpBlobClient) Delete(ctx context.Context, realid string) error {
 	b := strings.Builder{}
 	b.WriteString("http://")
-	b.WriteString(self.endpoint)
+	b.WriteString(self.client.Endpoint)
 	b.WriteString("/v1/blob/")
 	b.WriteString(realid)
 
-	req, err := makeRequest("DELETE", b.String(), nil)
+	req, err := self.client.makeRequest(ctx, "DELETE", b.String(), nil)
 	if err != nil {
 		return err
 	}
 
-	rep, err := self.client.Do(req)
+	rep, err := self.client.Http.Do(req)
 	if err != nil {
 		return err
 	}
@@ -62,16 +55,16 @@ func (self *httpBlobClient) Delete(ctx context.Context, realid string) error {
 func (self *httpBlobClient) Get(ctx context.Context, realid string) (io.ReadCloser, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
-	b.WriteString(self.endpoint)
+	b.WriteString(self.client.Endpoint)
 	b.WriteString("/v1/blob/")
 	b.WriteString(realid)
 
-	req, err := makeRequest("GET", b.String(), nil)
+	req, err := self.client.makeRequest(ctx, "GET", b.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	rep, err := self.client.Do(req)
+	rep, err := self.client.Http.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -87,17 +80,17 @@ func (self *httpBlobClient) Get(ctx context.Context, realid string) (io.ReadClos
 func (self *httpBlobClient) PutN(ctx context.Context, id BlobId, data io.Reader, size int64) (string, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
-	b.WriteString(self.endpoint)
+	b.WriteString(self.client.Endpoint)
 	b.WriteString("/v1/blob/")
 	id.EncodeIn(&b)
 
-	req, err := makeRequest("PUT", b.String(), data)
+	req, err := self.client.makeRequest(ctx, "PUT", b.String(), data)
 	if err != nil {
 		return "", err
 	}
 
 	req.ContentLength = size
-	rep, err := self.client.Do(req)
+	rep, err := self.client.Http.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -109,17 +102,17 @@ func (self *httpBlobClient) PutN(ctx context.Context, id BlobId, data io.Reader,
 func (self *httpBlobClient) Put(ctx context.Context, id BlobId, data io.Reader) (string, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
-	b.WriteString(self.endpoint)
+	b.WriteString(self.client.Endpoint)
 	b.WriteString("/v1/blob/")
 	id.EncodeIn(&b)
 
-	req, err := makeRequest("PUT", b.String(), data)
+	req, err := self.client.makeRequest(ctx, "PUT", b.String(), data)
 	if err != nil {
 		return "", err
 	}
 
 	req.ContentLength = -1
-	rep, err := self.client.Do(req)
+	rep, err := self.client.Http.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -129,29 +122,29 @@ func (self *httpBlobClient) Put(ctx context.Context, id BlobId, data io.Reader) 
 }
 
 func (self *httpBlobClient) List(ctx context.Context, max uint) ([]BlobListItem, error) {
-	return self.listRaw(max, "")
+	return self.listRaw(ctx, max, "")
 }
 
 func (self *httpBlobClient) ListAfter(ctx context.Context, max uint, marker string) ([]BlobListItem, error) {
-	return self.listRaw(max, marker)
+	return self.listRaw(ctx, max, marker)
 }
 
-func (self *httpBlobClient) listRaw(max uint, marker string) ([]BlobListItem, error) {
+func (self *httpBlobClient) listRaw(ctx context.Context, max uint, marker string) ([]BlobListItem, error) {
 	b := strings.Builder{}
 	b.WriteString("http://")
-	b.WriteString(self.endpoint)
+	b.WriteString(self.client.Endpoint)
 	b.WriteString("/v1/list")
 	if len(marker) > 0 {
 		b.WriteRune('/')
 		b.WriteString(marker)
 	}
 
-	req, err := makeRequest("GET", b.String(), nil)
+	req, err := self.client.makeRequest(ctx, "GET", b.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	rep, err := self.client.Do(req)
+	rep, err := self.client.Http.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -163,52 +156,6 @@ func (self *httpBlobClient) listRaw(max uint, marker string) ([]BlobListItem, er
 	default:
 		return nil, MapCodeToError(rep.StatusCode)
 	}
-}
-
-func (self *httpBlobClient) Status(ctx context.Context) (Stats, error) {
-	b := strings.Builder{}
-	b.WriteString("http://")
-	b.WriteString(self.endpoint)
-	b.WriteString("/v1/status")
-
-	req, err := makeRequest("GET", b.String(), nil)
-	if err != nil {
-		return Stats{}, err
-	}
-
-	rep, err := self.client.Do(req)
-	if err != nil {
-		return Stats{}, err
-	}
-
-	defer rep.Body.Close()
-	var st Stats
-	err = json.NewDecoder(rep.Body).Decode(&st)
-	return st, err
-}
-
-func (self *httpBlobClient) Health(ctx context.Context) (string, error) {
-	b := strings.Builder{}
-	b.WriteString("http://")
-	b.WriteString(self.endpoint)
-	b.WriteString("/v1/health")
-
-	req, err := makeRequest("GET", b.String(), nil)
-	if err != nil {
-		return "", err
-	}
-
-	rep, err := self.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-
-	defer rep.Body.Close()
-	body, err := ioutil.ReadAll(rep.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
 }
 
 func unpackBlobIdArray(body io.Reader) ([]BlobListItem, error) {
@@ -231,4 +178,36 @@ func unpackBlobIdArray(body io.Reader) ([]BlobListItem, error) {
 			}
 		}
 	}
+}
+
+func (self *httpBlobClient) srvGet(ctx context.Context, tag string) ([]byte, error) {
+	b := strings.Builder{}
+	b.WriteString("http://")
+	b.WriteString(self.client.Endpoint)
+	b.WriteString(tag)
+
+	req, err := self.client.makeRequest(ctx, "GET", b.String(), nil)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	rep, err := self.client.Http.Do(req)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	defer rep.Body.Close()
+	return ioutil.ReadAll(rep.Body)
+}
+
+func (self *httpBlobClient) Info(ctx context.Context) ([]byte, error) {
+	return self.client.Info(ctx)
+}
+
+func (self *httpBlobClient) Health(ctx context.Context) ([]byte, error) {
+	return self.client.Health(ctx)
+}
+
+func (self *httpBlobClient) Metrics(ctx context.Context) ([]byte, error) {
+	return self.client.Metrics(ctx)
 }

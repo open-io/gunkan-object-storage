@@ -18,12 +18,6 @@ import (
 	"os"
 )
 
-const (
-	routeInfo       = "/info"
-	routeHealth     = "/health"
-	routePrometheus = "/prometheus"
-)
-
 type Service struct {
 	Url  string
 	Info string
@@ -47,9 +41,9 @@ func NewHttpApi(url, info string) *Service {
 	srv.Info = info
 
 	srv.mux = http.NewServeMux()
-	srv.mux.HandleFunc(routeInfo, getF(srv.handleInfo()))
-	srv.mux.HandleFunc(routeHealth, getF(srv.handleHealth()))
-	srv.mux.Handle(routePrometheus, promhttp.Handler())
+	srv.mux.HandleFunc(gunkan.RouteInfo, getF(srv.handleInfo()))
+	srv.mux.HandleFunc(gunkan.RouteHealth, getF(srv.handleHealth()))
+	srv.mux.Handle(gunkan.RouteMetrics, promhttp.Handler())
 	return &srv
 }
 
@@ -148,10 +142,6 @@ func (ctx *RequestContext) ReplySuccess() {
 func replySetErrorMsg(rep http.ResponseWriter, code int, err string) {
 	rep.Header().Set("X-Error", err)
 	rep.WriteHeader(code)
-}
-
-func replySetError(rep http.ResponseWriter, code int, err error) {
-	replySetErrorMsg(rep, code, err.Error())
 }
 
 func getF(h http.HandlerFunc) http.HandlerFunc {

@@ -23,5 +23,17 @@ const (
 )
 
 const (
+	// Returns a simple string containing the type of the service.
+	RouteInfo = "/info"
+
+	// Provides the feedback expected by Consul.io
+	RouteHealth = "/health"
+
+	// Provides metrics using the standard of a Prometheus Exporter
+	// Thus also collectable with InfluxDB
+	RouteMetrics = "/metrics"
+)
+
+const (
 	ListHardMax = 10000
 )

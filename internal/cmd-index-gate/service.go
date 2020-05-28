@@ -475,15 +475,3 @@ func keepSingleDedup(tabs [][]string, max uint32) <-chan string {
 
 	return out
 }
-
-func (srv *service) Info(ctx context.Context, req *proto.None) (*proto.InfoReply, error) {
-	return nil, errors.New("NYI")
-}
-
-func (srv *service) Health(ctx context.Context, req *proto.None) (*proto.HealthReply, error) {
-	return nil, errors.New("NYI")
-}
-
-func (srv *service) Stats(ctx context.Context, req *proto.None) (*proto.StatsReply, error) {
-	return nil, errors.New("NYI")
-}
