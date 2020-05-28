@@ -1,11 +1,7 @@
-//
-// Copyright 2019-2020 Jean-Francois Smigielski
-//
-// This software is supplied under the terms of the MIT License, a
-// copy of which should be located in the distribution where this
-// file was obtained (LICENSE.txt). A copy of the license may also be
-// found online at https://opensource.org/licenses/MIT.
-//
+// Copyright (C) 2019-2020 OpenIO SAS
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 package cmd_data_gate
 
