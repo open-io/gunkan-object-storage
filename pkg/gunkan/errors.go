@@ -2,8 +2,6 @@ package gunkan
 
 import (
 	"errors"
-	"io"
-	"net/http"
 )
 
 var (
@@ -27,14 +25,4 @@ func MapCodeToError(code int) error {
 	default:
 		return ErrInternalError
 	}
-}
-
-func makeRequest(method string, path string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequest(method, path, body)
-	if err == nil {
-		req.Close = true
-		req.Header.Set("User-Agent", "gunkan-blob-go-api/1")
-		req.Header.Del("Accept-Encoding")
-	}
-	return req, err
 }

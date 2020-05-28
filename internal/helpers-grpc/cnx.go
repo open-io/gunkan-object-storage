@@ -13,6 +13,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"io/ioutil"
@@ -42,7 +43,10 @@ func DialTLS(addrConnect, dirConfig string) (*grpc.ClientConn, error) {
 
 	creds := credentials.NewClientTLSFromCert(certPool, "")
 
-	return grpc.Dial(addrConnect, grpc.WithTransportCredentials(creds))
+	return grpc.Dial(addrConnect,
+		grpc.WithTransportCredentials(creds),
+		grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor),
+		grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor))
 }
 
 func DialTLSInsecure(addrConnect string) (*grpc.ClientConn, error) {
@@ -50,10 +54,13 @@ func DialTLSInsecure(addrConnect string) (*grpc.ClientConn, error) {
 		InsecureSkipVerify: true,
 	}
 	creds := credentials.NewTLS(config)
-	return grpc.Dial(addrConnect, grpc.WithTransportCredentials(creds))
+	return grpc.Dial(addrConnect,
+		grpc.WithTransportCredentials(creds),
+		grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor),
+		grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor))
 }
 
-func ServerTLS(dirConfig string, registerGrpc func(*grpc.Server)) (*grpc.Server, error) {
+func ServerTLS(dirConfig string) (*grpc.Server, error) {
 	var certBytes, keyBytes []byte
 	var err error
 
@@ -76,8 +83,9 @@ func ServerTLS(dirConfig string, registerGrpc func(*grpc.Server)) (*grpc.Server,
 	}
 
 	creds := credentials.NewServerTLSFromCert(&cert)
-
-	grpcServer := grpc.NewServer(grpc.Creds(creds))
-	registerGrpc(grpcServer)
-	return grpcServer, nil
+	srv := grpc.NewServer(
+		grpc.Creds(creds),
+		grpc.StreamInterceptor(grpc_prometheus.StreamServerInterceptor),
+		grpc.UnaryInterceptor(grpc_prometheus.UnaryServerInterceptor))
+	return srv, nil
 }

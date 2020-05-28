@@ -11,29 +11,30 @@ package cmd_blob_client
 
 import (
 	"context"
-	"fmt"
 	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"github.com/spf13/cobra"
+
+	"os"
 )
 
-func HealthCommand() *cobra.Command {
+func SrvMetricsCommand() *cobra.Command {
 	var cfg config
 
 	client := &cobra.Command{
-		Use:     "ping",
-		Aliases: []string{"health"},
-		Short:   "Check the health of a BLOB service",
+		Use:     "metrics",
+		Aliases: []string{"stats", "stat", "status"},
+		Short:   "Get the usage statistics of a BLOB service",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := gunkan.DialBlob(cfg.url)
 			if err != nil {
 				return err
 			}
-			state, err := client.Health(context.Background())
+			body, err := client.(gunkan.HttpMonitorClient).Metrics(context.Background())
 			if err != nil {
 				return err
 			}
-			fmt.Print(state)
-			return nil
+			_, err = os.Stdout.Write(body)
+			return err
 		},
 	}
 

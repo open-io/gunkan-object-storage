@@ -165,15 +165,3 @@ func (srv *service) List(ctx context.Context, req *proto.ListRequest) (*proto.Li
 
 	return &rep, nil
 }
-
-func (srv *service) Info(ctx context.Context, req *proto.None) (*proto.InfoReply, error) {
-	return nil, errors.New("NYI")
-}
-
-func (srv *service) Health(ctx context.Context, req *proto.None) (*proto.HealthReply, error) {
-	return nil, errors.New("NYI")
-}
-
-func (srv *service) Stats(ctx context.Context, req *proto.None) (*proto.StatsReply, error) {
-	return nil, errors.New("NYI")
-}

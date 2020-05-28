@@ -11,14 +11,17 @@ package gunkan
 
 import (
 	"context"
+	"net/http"
 )
 
-type IndexClient interface {
-	Put(ctx context.Context, key BaseKey, value string) error
+type HttpSimpleClient struct {
+	Endpoint  string
+	UserAgent string
+	Http      http.Client
+}
 
-	Get(ctx context.Context, key BaseKey) (string, error)
-
-	Delete(ctx context.Context, key BaseKey) error
-
-	List(ctx context.Context, marker BaseKey, max uint32) ([]string, error)
+type HttpMonitorClient interface {
+	Info(ctx context.Context) ([]byte, error)
+	Health(ctx context.Context) ([]byte, error)
+	Metrics(ctx context.Context) ([]byte, error)
 }

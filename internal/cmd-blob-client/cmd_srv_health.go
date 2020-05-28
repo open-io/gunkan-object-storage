@@ -13,33 +13,27 @@ import (
 	"context"
 	"github.com/jfsmig/object-storage/pkg/gunkan"
 	"github.com/spf13/cobra"
-
-	"encoding/json"
 	"os"
 )
 
-func StatusCommand() *cobra.Command {
+func SrvHealthCommand() *cobra.Command {
 	var cfg config
 
 	client := &cobra.Command{
-		Use:     "status",
-		Aliases: []string{"stats", "stat"},
-		Short:   "Get the usage statistics of a BLOB service",
+		Use:     "health",
+		Aliases: []string{"ruok", "check", "ping"},
+		Short:   "Get the service type",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := gunkan.DialBlob(cfg.url)
 			if err != nil {
 				return err
 			}
-
-			st, err := client.Status(context.Background())
+			body, err := client.(gunkan.HttpMonitorClient).Health(context.Background())
 			if err != nil {
 				return err
-			} else {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				enc.Encode(&st)
-				return nil
 			}
+			_, err = os.Stdout.Write(body)
+			return err
 		},
 	}
 

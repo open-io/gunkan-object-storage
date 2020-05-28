@@ -27,8 +27,9 @@ func MainCommand() *cobra.Command {
 	client.AddCommand(GetCommand())
 	client.AddCommand(DelCommand())
 	client.AddCommand(ListCommand())
-	client.AddCommand(StatusCommand())
-	client.AddCommand(HealthCommand())
+	client.AddCommand(SrvInfoCommand())
+	client.AddCommand(SrvHealthCommand())
+	client.AddCommand(SrvMetricsCommand())
 	return client
 }
 

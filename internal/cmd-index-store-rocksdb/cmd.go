@@ -11,11 +11,13 @@ package cmd_index_store_rocksdb
 
 import (
 	"errors"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/jfsmig/object-storage/internal/helpers-grpc"
 	"github.com/jfsmig/object-storage/pkg/gunkan-index-proto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
 	"net"
+	"net/http"
 )
 
 func MainCommand() *cobra.Command {
@@ -52,13 +54,16 @@ func MainCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			httpServer, err := helpers_grpc.ServerTLS(cfg.dirConfig, func(srv *grpc.Server) {
-				gunkan_index_proto.RegisterIndexServer(srv, service)
-				gunkan_index_proto.RegisterDiscoveryServer(srv, service)
-			})
+			httpServer, err := helpers_grpc.ServerTLS(cfg.dirConfig)
 			if err != nil {
 				return err
 			}
+			gunkan_index_proto.RegisterIndexServer(httpServer, service)
+			grpc_prometheus.Register(httpServer)
+			http.Handle("/metrics", promhttp.Handler())
+			http.HandleFunc("/info", func(rep http.ResponseWriter, req *http.Request) {
+				rep.Write([]byte("Yallah!"))
+			})
 			return httpServer.Serve(lis)
 		},
 	}

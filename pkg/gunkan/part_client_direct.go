@@ -10,47 +10,35 @@
 package gunkan
 
 import (
-	"context"
-	"io/ioutil"
-
 	"bufio"
-	"encoding/json"
+	"context"
 	"io"
-	"net/http"
 	"strings"
 )
 
 type httpPartClient struct {
-	endpoint string
-	client   http.Client
+	client HttpSimpleClient
 }
 
 func DialPart(url string) (PartClient, error) {
-	return newHttpPartClient(url), nil
-}
-
-func newHttpPartClient(url string) PartClient {
-	return &httpPartClient{endpoint: url, client: http.Client{}}
-}
-
-func (self *httpPartClient) Close() error {
-	self.client.CloseIdleConnections()
-	return nil
+	var err error
+	var rc httpPartClient
+	err = rc.client.Init(url)
+	if err != nil {
+		return nil, err
+	}
+	return &rc, nil
 }
 
 func (self *httpPartClient) Delete(ctx context.Context, id PartId) error {
-	b := strings.Builder{}
-	b.WriteString("http://")
-	b.WriteString(self.endpoint)
-	b.WriteString("/v1/blob/")
-	id.EncodeIn(&b)
+	url := self.client.BuildUrl("/v1/blob")
 
-	req, err := makeRequest("DELETE", b.String(), nil)
+	req, err := self.client.makeRequest(ctx, "DELETE", url, nil)
 	if err != nil {
 		return err
 	}
 
-	rep, err := self.client.Do(req)
+	rep, err := self.client.Http.Do(req)
 	if err != nil {
 		return err
 	}
@@ -60,18 +48,14 @@ func (self *httpPartClient) Delete(ctx context.Context, id PartId) error {
 }
 
 func (self *httpPartClient) Get(ctx context.Context, id PartId) (io.ReadCloser, error) {
-	b := strings.Builder{}
-	b.WriteString("http://")
-	b.WriteString(self.endpoint)
-	b.WriteString("/v1/blob/")
-	id.EncodeIn(&b)
+	url := self.client.BuildUrl("/v1/blob")
 
-	req, err := makeRequest("GET", b.String(), nil)
+	req, err := self.client.makeRequest(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	rep, err := self.client.Do(req)
+	rep, err := self.client.Http.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -85,19 +69,15 @@ func (self *httpPartClient) Get(ctx context.Context, id PartId) (io.ReadCloser, 
 }
 
 func (self *httpPartClient) PutN(ctx context.Context, id PartId, data io.Reader, size int64) error {
-	b := strings.Builder{}
-	b.WriteString("http://")
-	b.WriteString(self.endpoint)
-	b.WriteString("/v1/blob/")
-	id.EncodeIn(&b)
+	url := self.client.BuildUrl("/v1/blob")
 
-	req, err := makeRequest("PUT", b.String(), data)
+	req, err := self.client.makeRequest(ctx, "PUT", url, data)
 	if err != nil {
 		return err
 	}
 
 	req.ContentLength = size
-	rep, err := self.client.Do(req)
+	rep, err := self.client.Http.Do(req)
 	if err != nil {
 		return err
 	}
@@ -107,19 +87,15 @@ func (self *httpPartClient) PutN(ctx context.Context, id PartId, data io.Reader,
 }
 
 func (self *httpPartClient) Put(ctx context.Context, id PartId, data io.Reader) error {
-	b := strings.Builder{}
-	b.WriteString("http://")
-	b.WriteString(self.endpoint)
-	b.WriteString("/v1/blob/")
-	id.EncodeIn(&b)
+	url := self.client.BuildUrl("/v1/blob")
 
-	req, err := makeRequest("PUT", b.String(), data)
+	req, err := self.client.makeRequest(ctx, "PUT", url, data)
 	if err != nil {
 		return err
 	}
 
 	req.ContentLength = -1
-	rep, err := self.client.Do(req)
+	rep, err := self.client.Http.Do(req)
 	if err != nil {
 		return err
 	}
@@ -129,75 +105,22 @@ func (self *httpPartClient) Put(ctx context.Context, id PartId, data io.Reader) 
 }
 
 func (self *httpPartClient) List(ctx context.Context, max uint32) ([]PartId, error) {
-	return self.listRaw(max, "")
+	return self.listRaw(ctx, max, "")
 }
 
 func (self *httpPartClient) ListAfter(ctx context.Context, max uint32, id PartId) ([]PartId, error) {
-	return self.listRaw(max, id.EncodeMarker())
+	return self.listRaw(ctx, max, id.EncodeMarker())
 }
 
-func (self *httpPartClient) Status(ctx context.Context) (PartStats, error) {
-	b := strings.Builder{}
-	b.WriteString("http://")
-	b.WriteString(self.endpoint)
-	b.WriteString("/v1/status")
+func (self *httpPartClient) listRaw(ctx context.Context, max uint32, marker string) ([]PartId, error) {
+	url := self.client.BuildUrl("/v1/list")
 
-	req, err := makeRequest("GET", b.String(), nil)
-	if err != nil {
-		return PartStats{}, err
-	}
-
-	rep, err := self.client.Do(req)
-	if err != nil {
-		return PartStats{}, err
-	}
-
-	defer rep.Body.Close()
-	var st PartStats
-	err = json.NewDecoder(rep.Body).Decode(&st)
-	return st, err
-}
-
-func (self *httpPartClient) Health(ctx context.Context) (string, error) {
-	b := strings.Builder{}
-	b.WriteString("http://")
-	b.WriteString(self.endpoint)
-	b.WriteString("/v1/health")
-
-	req, err := makeRequest("GET", b.String(), nil)
-	if err != nil {
-		return "", err
-	}
-
-	rep, err := self.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-
-	defer rep.Body.Close()
-	body, err := ioutil.ReadAll(rep.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
-}
-
-func (self *httpPartClient) listRaw(max uint32, marker string) ([]PartId, error) {
-	b := strings.Builder{}
-	b.WriteString("http://")
-	b.WriteString(self.endpoint)
-	b.WriteString("/v1/list")
-	if len(marker) > 0 {
-		b.WriteRune('/')
-		b.WriteString(marker)
-	}
-
-	req, err := makeRequest("GET", b.String(), nil)
+	req, err := self.client.makeRequest(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	rep, err := self.client.Do(req)
+	rep, err := self.client.Http.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -231,4 +154,16 @@ func unpackPartIdArray(body io.Reader) ([]PartId, error) {
 			}
 		}
 	}
+}
+
+func (self *httpPartClient) Info(ctx context.Context) ([]byte, error) {
+	return self.client.Info(ctx)
+}
+
+func (self *httpPartClient) Health(ctx context.Context) ([]byte, error) {
+	return self.client.Health(ctx)
+}
+
+func (self *httpPartClient) Metrics(ctx context.Context) ([]byte, error) {
+	return self.client.Metrics(ctx)
 }
